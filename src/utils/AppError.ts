@@ -29,3 +29,7 @@ export class ForbiddenError extends AppError {
 export class ConflictError extends AppError {
   constructor(message = 'Conflict') { super(message, 409) }
 }
+
+export class ValidationError extends AppError {
+  constructor(message = 'Validation error') { super(message, 400) }
+}

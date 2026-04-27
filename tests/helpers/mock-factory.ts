@@ -20,6 +20,8 @@ export interface OrderData {
   billSplitPct: number
   priority: string
   customer: { name: string; phone: string; email: string }
+  items: Array<{ description: string; quantity: number; unit: string; unitPrice: number }>
+  createdBy?: string
 }
 
 export interface TaskData {
@@ -57,6 +59,7 @@ export function makeOrder(overrides: Partial<OrderData> = {}): OrderData {
       phone: '9999999999',
       email: 'customer@test.com',
     },
+    items: [{ description: 'Banner print', quantity: 2, unit: 'sqft', unitPrice: 250 }],
     ...overrides,
   }
 }
@@ -87,6 +90,31 @@ export function makeMachine(overrides: Partial<MachineData> = {}): MachineData {
     type:       'flex_printer',
     department: 'Printing',
     status:     'active',
+    ...overrides,
+  }
+}
+
+export interface MaterialData {
+  _id?:        string
+  name:        string
+  category:    string
+  unit:        string
+  stock:       number
+  threshold:   number
+  costPerUnit: number
+  supplier?:   { name?: string; phone?: string; email?: string }
+  isActive:    boolean
+}
+
+export function makeMaterial(overrides: Partial<MaterialData> = {}): MaterialData {
+  return {
+    name:        'Test Flex Material',
+    category:    'flex',
+    unit:        'sqft',
+    stock:       100,
+    threshold:   10,
+    costPerUnit: 5,
+    isActive:    true,
     ...overrides,
   }
 }

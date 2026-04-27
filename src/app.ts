@@ -5,6 +5,8 @@ import rateLimit from 'express-rate-limit'
 import { authRouter } from './modules/auth/auth.routes'
 import { userRouter } from './modules/users/user.routes'
 import { machineRouter } from './modules/machines/machine.routes'
+import { orderRouter } from './modules/orders/order.routes'
+import { inventoryRouter } from './modules/inventory/inventory.routes'
 import { errorHandler } from './middleware/errorHandler'
 
 export const app = express()
@@ -19,5 +21,7 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 app.use('/api/v1/auth', authRouter)
 app.use('/api/v1/users', userRouter)
 app.use('/api/v1/machines', machineRouter)
+app.use('/api/v1/orders', orderRouter)
+app.use('/api/v1/inventory', inventoryRouter)
 
 app.use(errorHandler)

@@ -1,18 +1,18 @@
 import { beforeAll, afterAll, afterEach, vi } from 'vitest'
-import { MongoMemoryServer } from 'mongodb-memory-server'
+import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import mongoose from 'mongoose'
 
-let mongoServer: MongoMemoryServer
+let mongoServer: MongoMemoryReplSet
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create()
+  mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } })
   await mongoose.connect(mongoServer.getUri())
 
   // Block real network calls in unit tests
   vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
     throw new Error('Real network call in unit test — use vi.mock()')
   })
-}, 30_000)
+}, 60_000)
 
 afterEach(async () => {
   // Clean slate between tests
@@ -27,4 +27,4 @@ afterAll(async () => {
   await mongoose.disconnect()
   await mongoServer.stop()
   vi.restoreAllMocks()
-})
+}, 60_000)
