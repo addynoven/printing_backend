@@ -127,6 +127,46 @@ describe('Machines API — Integration', () => {
   })
 
   // ──────────────────────────────────────────────
+  // GET /api/v1/machines/:id
+  // ──────────────────────────────────────────────
+  describe('GET /api/v1/machines/:id', () => {
+    it('returns 200 with the machine when it exists', async () => {
+      const machine = await Machine.create(makeMachine({ name: 'Solo Machine' }))
+
+      const res = await request(app)
+        .get(`/api/v1/machines/${machine._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+
+      expect(res.status).toBe(200)
+      expect(res.body.name).toBe('Solo Machine')
+      expect(String(res.body._id)).toBe(machine._id.toString())
+    })
+
+    it('returns 404 for valid ObjectId that does not exist', async () => {
+      const res = await request(app)
+        .get('/api/v1/machines/000000000000000000000001')
+        .set('Authorization', `Bearer ${adminToken}`)
+
+      expect(res.status).toBe(404)
+    })
+
+    it('returns 400 for malformed ObjectId', async () => {
+      const res = await request(app)
+        .get('/api/v1/machines/not-a-valid-id')
+        .set('Authorization', `Bearer ${adminToken}`)
+
+      expect(res.status).toBe(400)
+    })
+
+    it('returns 401 with no token', async () => {
+      const res = await request(app)
+        .get('/api/v1/machines/000000000000000000000001')
+
+      expect(res.status).toBe(401)
+    })
+  })
+
+  // ──────────────────────────────────────────────
   // PATCH /api/v1/machines/:id
   // ──────────────────────────────────────────────
   describe('PATCH /api/v1/machines/:id', () => {
@@ -264,6 +304,16 @@ describe('Machines API — Integration', () => {
     it('GET / returns 403 for designer', async () => {
       const res = await request(app)
         .get('/api/v1/machines')
+        .set('Authorization', `Bearer ${designerToken}`)
+
+      expect(res.status).toBe(403)
+    })
+
+    it('GET /:id returns 403 for designer', async () => {
+      const machine = await Machine.create(makeMachine())
+
+      const res = await request(app)
+        .get(`/api/v1/machines/${machine._id}`)
         .set('Authorization', `Bearer ${designerToken}`)
 
       expect(res.status).toBe(403)
