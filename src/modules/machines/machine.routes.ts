@@ -52,6 +52,15 @@ machineRouter.post('/',
   })
 )
 
+machineRouter.get('/:id',
+  authenticate,
+  permit('machines', 'read'),
+  asyncHandler(async (req, res) => {
+    const machine = await machineService.getMachineById(req.params.id)
+    res.json(machine)
+  })
+)
+
 machineRouter.patch('/:id',
   authenticate,
   permit('machines', 'update'),

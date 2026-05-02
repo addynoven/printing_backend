@@ -6,38 +6,64 @@ import * as analyticsService from './analytics.service'
 
 export const analyticsRouter = Router()
 
+function dateRange(req: import('express').Request) {
+  const { from, to } = req.query
+  const range: analyticsService.DateRangeQuery = {}
+  if (typeof from === 'string') range.from = from
+  if (typeof to   === 'string') range.to   = to
+  return range
+}
+
 analyticsRouter.get('/overview',
   authenticate,
   permit('analytics', 'read'),
-  asyncHandler(async (_req, res) => {
-    const data = await analyticsService.getOverview()
-    res.json(data)
+  asyncHandler(async (req, res) => {
+    const result = await analyticsService.getOverview(dateRange(req))
+    res.json(result)
   })
 )
 
 analyticsRouter.get('/orders',
   authenticate,
   permit('analytics', 'read'),
-  asyncHandler(async (_req, res) => {
-    const data = await analyticsService.getOrderStats()
-    res.json(data)
+  asyncHandler(async (req, res) => {
+    const result = await analyticsService.getOrderStats(dateRange(req))
+    res.json(result)
   })
 )
 
 analyticsRouter.get('/revenue',
   authenticate,
   permit('analytics', 'read'),
+  asyncHandler(async (req, res) => {
+    const result = await analyticsService.getRevenue(dateRange(req))
+    res.json(result)
+  })
+)
+
+analyticsRouter.get('/inventory',
+  authenticate,
+  permit('analytics', 'read'),
   asyncHandler(async (_req, res) => {
-    const data = await analyticsService.getRevenueStats()
-    res.json(data)
+    const result = await analyticsService.getInventoryStatus()
+    res.json(result)
   })
 )
 
 analyticsRouter.get('/tasks',
   authenticate,
   permit('analytics', 'read'),
+  asyncHandler(async (req, res) => {
+    const result = await analyticsService.getTaskStats(dateRange(req))
+    res.json(result)
+  })
+)
+
+analyticsRouter.get('/machines',
+  authenticate,
+  permit('analytics', 'read'),
   asyncHandler(async (_req, res) => {
-    const data = await analyticsService.getTaskStats()
-    res.json(data)
+    const result = await analyticsService.getMachineUtilization()
+    res.json(result)
   })
 )

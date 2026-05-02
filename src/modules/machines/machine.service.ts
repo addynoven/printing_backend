@@ -34,6 +34,12 @@ export async function createMachine(data: CreateMachineInput) {
   return machine.toObject()
 }
 
+export async function getMachineById(id: string) {
+  const machine = await Machine.findById(id).lean()
+  if (!machine) throw new NotFoundError('Machine not found')
+  return machine
+}
+
 export async function updateMachine(id: string, data: UpdateMachineInput) {
   const machine = await Machine.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean()
   if (!machine) throw new NotFoundError('Machine not found')

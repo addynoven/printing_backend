@@ -21,6 +21,14 @@ vi.mock('../audit/activity-log.service', () => ({
   logActivity: vi.fn().mockResolvedValue(undefined),
 }))
 
+// Mock hooks so they don't reach into other modules during state-machine unit tests
+vi.mock('./order.hooks', () => ({
+  autoAssignTask:            vi.fn().mockResolvedValue(undefined),
+  deductInventory:           vi.fn().mockResolvedValue(undefined),
+  generateFinalBarcode:      vi.fn().mockResolvedValue(undefined),
+  reverseInventoryIfDeducted: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { canTransition, transitionOrder } from './order.statemachine'
 import { Order } from './order.model'
 import { NotFoundError, ValidationError } from '../../utils/AppError'

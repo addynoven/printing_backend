@@ -3,6 +3,7 @@ import { Order, IOrder, OrderStatus } from './order.model'
 import { Customer } from '../customers/customer.model'
 import { logActivity } from '../audit/activity-log.service'
 import { ValidationError } from '../../utils/AppError'
+import { logger } from '../../utils/logger'
 import { autoAssignTask } from '../tasks/task.assigner'
 import { deductForOrder, reverseOrderDeductions } from '../inventory/inventory.service'
 import { generateBarcode } from '../barcode/barcode.service'
@@ -94,8 +95,19 @@ export async function transitionOrder(
     details: { from: previousStatus, to: newStatus, note },
   })
 
+  // Hooks run after the transition is persisted. Failures are logged but do
+  // not roll back the status change — the transition is the source of truth.
   for (const hook of HOOKS[newStatus] ?? []) {
-    await hook(order, actorId.toString())
+    try {
+      await hook(order, actorId.toString())
+    } catch (err) {
+      logger.error('Order transition hook failed', {
+        orderId:   orderId,
+        newStatus,
+        hook:      hook.name,
+        error:     err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   return order
