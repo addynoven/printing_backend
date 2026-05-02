@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest'
 vi.mock('./machine.model', () => {
   const mockMachine = {
     find:              vi.fn(),
+    findById:          vi.fn(),
     create:            vi.fn(),
     findByIdAndUpdate: vi.fn(),
   }
@@ -16,6 +17,7 @@ import { NotFoundError } from '../../utils/AppError'
 
 const MockMachine = vi.mocked(Machine as unknown as {
   find:              ReturnType<typeof vi.fn>
+  findById:          ReturnType<typeof vi.fn>
   create:            ReturnType<typeof vi.fn>
   findByIdAndUpdate: ReturnType<typeof vi.fn>
 })
@@ -79,6 +81,25 @@ describe('Machine Service — Unit Tests', () => {
 
       expect(MockMachine.create).toHaveBeenCalledWith(expect.objectContaining({ name: 'Flex One', type: 'flex_printer' }))
       expect(result).toMatchObject({ name: 'Flex One', type: 'flex_printer' })
+    })
+  })
+
+  // ──────────────────────────────────────────────
+  // getMachineById
+  // ──────────────────────────────────────────────
+  describe('getMachineById', () => {
+    it('returns machine when found', async () => {
+      MockMachine.findById.mockReturnValue(chain(makeMachine({ name: 'Found Machine' })))
+
+      const result = await machineService.getMachineById('machine_001')
+
+      expect(result).toMatchObject({ name: 'Found Machine' })
+    })
+
+    it('throws NotFoundError when machine does not exist', async () => {
+      MockMachine.findById.mockReturnValue(chain(null))
+
+      await expect(machineService.getMachineById('bad_id')).rejects.toBeInstanceOf(NotFoundError)
     })
   })
 

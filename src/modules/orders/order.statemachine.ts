@@ -1,6 +1,13 @@
 import { Types } from 'mongoose'
 import { Order, IOrder, OrderStatus } from './order.model'
 import { ValidationError } from '../../utils/AppError'
+import { logger } from '../../utils/logger'
+import {
+  autoAssignTask,
+  deductInventory,
+  generateFinalBarcode,
+  reverseInventoryIfDeducted,
+} from './order.hooks'
 
 const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   draft:         ['confirmed', 'cancelled'],
@@ -12,12 +19,6 @@ const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   invoiced:      [],
   cancelled:     [],
 }
-
-// Hooks stubbed — wired up when tasks/inventory/barcode modules are built
-async function autoAssignTask(_order: IOrder): Promise<void> {}
-async function deductInventory(_order: IOrder): Promise<void> {}
-async function generateFinalBarcode(_order: IOrder): Promise<void> {}
-async function reverseInventoryIfDeducted(_order: IOrder): Promise<void> {}
 
 const HOOKS: Partial<Record<OrderStatus, Array<(order: IOrder) => Promise<void>>>> = {
   confirmed:  [autoAssignTask],
@@ -55,8 +56,19 @@ export async function transitionOrder(
 
   await order.save()
 
+  // Hooks run after the transition is persisted. Failures are logged but do
+  // not roll back the status change — the transition is the source of truth.
   for (const hook of HOOKS[newStatus] ?? []) {
-    await hook(order)
+    try {
+      await hook(order)
+    } catch (err) {
+      logger.error('Order transition hook failed', {
+        orderId:   orderId,
+        newStatus,
+        hook:      hook.name,
+        error:     err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   return order

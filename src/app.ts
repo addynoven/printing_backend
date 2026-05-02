@@ -12,6 +12,7 @@ import { billingRouter } from './modules/billing/billing.routes'
 import { paymentRouter } from './modules/payments/payment.routes'
 import { notificationRouter } from './modules/notifications/notification.routes'
 import { barcodeRouter } from './modules/barcode/barcode.routes'
+import { analyticsRouter } from './modules/analytics/analytics.routes'
 import { errorHandler } from './middleware/errorHandler'
 
 export const app = express()
@@ -33,5 +34,6 @@ app.use('/api/v1/billing', billingRouter)
 app.use('/api/v1/payments', paymentRouter)
 app.use('/api/v1/notifications', notificationRouter)
 app.use('/api/v1/barcodes', barcodeRouter)
+app.use('/api/v1/analytics', analyticsRouter)
 
 app.use(errorHandler)
