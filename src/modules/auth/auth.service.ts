@@ -1,21 +1,29 @@
 import jwt from 'jsonwebtoken'
 import { env } from '../../config/env'
 import { User } from './auth.model'
+import { logActivity } from '../audit/activity-log.service'
 import { UnauthorizedError, ConflictError } from '../../utils/AppError'
 
-export async function login(email: string, password: string) {
+export async function login(email: string, password: string, ip?: string) {
   const user = await User.findOne({ email, isActive: true }).select('+password')
-  if (!user) throw new UnauthorizedError('Invalid email or password')
+  if (!user) {
+    await logActivity({ action: 'login', resource: 'auth', details: { success: false, email }, ip })
+    throw new UnauthorizedError('Invalid email or password')
+  }
 
   const valid = await user.comparePassword(password)
-  if (!valid) throw new UnauthorizedError('Invalid email or password')
+  if (!valid) {
+    await logActivity({ userId: user._id.toString(), action: 'login', resource: 'auth', details: { success: false, email }, ip })
+    throw new UnauthorizedError('Invalid email or password')
+  }
 
   const token = jwt.sign(
     { _id: user._id, role: user.role, email: user.email },
     env.JWT_SECRET,
-    { expiresIn: env.JWT_EXPIRES_IN }
+    { expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'] }
   )
 
+  await logActivity({ userId: user._id.toString(), action: 'login', resource: 'auth', details: { success: true, email }, ip })
   return {
     token,
     user: { _id: user._id, name: user.name, email: user.email, role: user.role },

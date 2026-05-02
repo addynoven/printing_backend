@@ -1,0 +1,2275 @@
+openapi: 3.0.3
+
+info:
+  title: POMS API
+  description: |
+    **Print Operations Management System** — REST API for managing print job orders,
+    staff tasks, inventory, billing, payments, and analytics.
+
+    ## Authentication
+    Every endpoint except `POST /auth/login` requires a Bearer JWT in the
+    `Authorization` header.
+
+    ## Error shape
+    All errors return `{ "error": "<message>" }` with the appropriate HTTP status.
+
+    ## Roles & permissions
+    | Role | orders | tasks | billing | payments | inventory | machines | analytics | users |
+    |------|--------|-------|---------|----------|-----------|----------|-----------|-------|
+    | super_admin | CRUD | CRUD | CRUD | CRUD | CRUD | CRUD | R | CRUD |
+    | admin | CRU | CRUD | R | CRU | CRU | CRU | R | CRU |
+    | sub_admin | CRU | CRU | R | R | R | R | — | R |
+    | designer | R | CRU (own) | — | — | R | — | — | — |
+    | *_staff | R (own) | RU (own) | — | — | R | — | — | — |
+
+  version: 1.0.0
+  contact:
+    email: capitalcurv8@gmail.com
+
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Login and current-user
+  - name: Users
+    description: Staff management
+  - name: Orders
+    description: Print job orders and state machine
+  - name: Tasks
+    description: Production tasks auto-assigned from orders
+  - name: Payments
+    description: Advance, partial, and final payments
+  - name: Billing
+    description: Raw and GST bills
+  - name: Inventory
+    description: Materials, stock levels, and ledger
+  - name: Machines
+    description: Production equipment
+  - name: Notifications
+    description: In-app notifications per user
+  - name: Barcodes
+    description: QR code generation and scan events
+  - name: Analytics
+    description: Aggregated business metrics
+
+security:
+  - bearerAuth: []
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ─── Reusable parameters ────────────────────────────────────────────────────
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: 6655a1b2c3d4e5f6a7b8c9d0
+    orderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+        example: 6655a1b2c3d4e5f6a7b8c9d0
+
+  # ─── Reusable responses ──────────────────────────────────────────────────────
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Unauthorized
+    Forbidden:
+      description: Authenticated but insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Forbidden
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Not found
+    BadRequest:
+      description: Validation error or invalid state transition
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Duplicate unique field
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  # ─── Schemas ────────────────────────────────────────────────────────────────
+  schemas:
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    # Auth ────────────────────────────────────────────────────────────────────
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: admin@poms.com
+        password:
+          type: string
+          minLength: 1
+          example: password123
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: "Signed JWT — include as `Authorization: Bearer <token>`"
+        user:
+          $ref: '#/components/schemas/User'
+
+    # Users ───────────────────────────────────────────────────────────────────
+    Role:
+      type: string
+      enum:
+        - super_admin
+        - admin
+        - sub_admin
+        - designer
+        - flex_printing_staff
+        - screen_printing_staff
+        - helper_staff
+        - expose_staff
+        - binder_staff
+        - offset_staff
+        - cutting_staff
+        - laser_cut_staff
+        - acrylic_printing_staff
+        - glass_printing_staff
+
+    User:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/Role'
+        phone:
+          type: string
+        isAvailable:
+          type: boolean
+        activeTaskCount:
+          type: integer
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateUserRequest:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          minLength: 2
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        role:
+          $ref: '#/components/schemas/Role'
+        phone:
+          type: string
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 2
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/Role'
+        phone:
+          type: string
+
+    UserList:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        total:
+          type: integer
+
+    # Orders ──────────────────────────────────────────────────────────────────
+    JobType:
+      type: string
+      enum:
+        - flex_printing
+        - screen_printing
+        - design
+        - laser_cut
+        - offset
+        - acrylic
+        - glass
+        - binding
+
+    OrderStatus:
+      type: string
+      enum:
+        - draft
+        - confirmed
+        - designing
+        - in_production
+        - finishing
+        - completed
+        - invoiced
+        - cancelled
+
+    Priority:
+      type: string
+      enum: [normal, urgent]
+
+    OrderItem:
+      type: object
+      required: [description, quantity, unit, unitPrice]
+      properties:
+        description:
+          type: string
+        quantity:
+          type: number
+          minimum: 0
+        unit:
+          type: string
+          example: sqft
+        unitPrice:
+          type: number
+          minimum: 0
+
+    BomEntry:
+      type: object
+      properties:
+        materialId:
+          type: string
+        name:
+          type: string
+        unit:
+          type: string
+        qty:
+          type: number
+
+    StatusHistory:
+      type: object
+      properties:
+        status:
+          type: string
+        changedBy:
+          type: string
+        note:
+          type: string
+        at:
+          type: string
+          format: date-time
+
+    Order:
+      type: object
+      properties:
+        _id:
+          type: string
+        orderNumber:
+          type: string
+          example: ORD-2024-0001
+        customer:
+          type: object
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+              format: email
+        jobType:
+          $ref: '#/components/schemas/JobType'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        bom:
+          type: array
+          items:
+            $ref: '#/components/schemas/BomEntry'
+        rawCost:
+          type: number
+        taxableValue:
+          type: number
+        billSplitPct:
+          type: number
+          minimum: 0
+          maximum: 100
+        hsnCode:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        statusHistory:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusHistory'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        deadline:
+          type: string
+          format: date-time
+        advancePaid:
+          type: number
+        notes:
+          type: string
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateOrderRequest:
+      type: object
+      required: [customer, jobType, items, rawCost, taxableValue, billSplitPct]
+      properties:
+        customer:
+          type: object
+          required: [name, phone]
+          properties:
+            name:
+              type: string
+              minLength: 2
+            phone:
+              type: string
+              minLength: 7
+            email:
+              type: string
+              format: email
+        jobType:
+          $ref: '#/components/schemas/JobType'
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        bom:
+          type: array
+          items:
+            $ref: '#/components/schemas/BomEntry'
+        rawCost:
+          type: number
+          minimum: 0
+        taxableValue:
+          type: number
+          minimum: 0
+        billSplitPct:
+          type: number
+          minimum: 0
+          maximum: 100
+        hsnCode:
+          type: string
+        priority:
+          $ref: '#/components/schemas/Priority'
+        deadline:
+          type: string
+          format: date-time
+        notes:
+          type: string
+
+    UpdateOrderRequest:
+      type: object
+      properties:
+        customer:
+          type: object
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+              format: email
+        rawCost:
+          type: number
+        taxableValue:
+          type: number
+        billSplitPct:
+          type: number
+        hsnCode:
+          type: string
+        priority:
+          $ref: '#/components/schemas/Priority'
+        deadline:
+          type: string
+          format: date-time
+        notes:
+          type: string
+
+    SetOrderStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        note:
+          type: string
+
+    OrderList:
+      type: object
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        total:
+          type: integer
+
+    # Tasks ───────────────────────────────────────────────────────────────────
+    TaskStatus:
+      type: string
+      enum: [unassigned, assigned, in_progress, paused, done]
+
+    Task:
+      type: object
+      properties:
+        _id:
+          type: string
+        orderId:
+          type: string
+        type:
+          $ref: '#/components/schemas/JobType'
+        assignedTo:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        startedAt:
+          type: string
+          format: date-time
+        pausedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        totalMinutes:
+          type: integer
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    TaskList:
+      type: object
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+        total:
+          type: integer
+
+    UpdateTaskStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        notes:
+          type: string
+
+    AssignTaskRequest:
+      type: object
+      required: [assignedTo]
+      properties:
+        assignedTo:
+          type: string
+          description: User ID of the staff member
+
+    # Payments ────────────────────────────────────────────────────────────────
+    PaymentType:
+      type: string
+      enum: [advance, final, partial]
+
+    PaymentMethod:
+      type: string
+      enum: [cash, upi, card]
+
+    PaymentStatus:
+      type: string
+      enum: [pending, completed, refunded]
+
+    Payment:
+      type: object
+      properties:
+        _id:
+          type: string
+        orderId:
+          type: string
+        billId:
+          type: string
+        type:
+          $ref: '#/components/schemas/PaymentType'
+        amount:
+          type: number
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        referenceId:
+          type: string
+        collectedBy:
+          type: string
+        paidAt:
+          type: string
+          format: date-time
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreatePaymentRequest:
+      type: object
+      required: [orderId, type, amount, method]
+      properties:
+        orderId:
+          type: string
+        billId:
+          type: string
+        type:
+          $ref: '#/components/schemas/PaymentType'
+        amount:
+          type: number
+          minimum: 0
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        referenceId:
+          type: string
+        notes:
+          type: string
+
+    PaymentList:
+      type: object
+      properties:
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payment'
+        total:
+          type: integer
+
+    # Billing ─────────────────────────────────────────────────────────────────
+    BillType:
+      type: string
+      enum: [raw, gst]
+
+    BillLineItem:
+      type: object
+      properties:
+        description:
+          type: string
+        qty:
+          type: number
+        rate:
+          type: number
+        amount:
+          type: number
+
+    Bill:
+      type: object
+      properties:
+        _id:
+          type: string
+        orderId:
+          type: string
+        type:
+          $ref: '#/components/schemas/BillType'
+        seriesNumber:
+          type: string
+          example: TAX-2024-001
+        amount:
+          type: number
+        isProtected:
+          type: boolean
+          description: Raw bills are password-protected
+        lineItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillLineItem'
+        taxableAmount:
+          type: number
+          description: GST bills only
+        cgst:
+          type: number
+          description: GST bills only — 9%
+        sgst:
+          type: number
+          description: GST bills only — 9%
+        totalAmount:
+          type: number
+          description: GST bills only — taxableAmount + cgst + sgst
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateBillRequest:
+      type: object
+      required: [orderId, type]
+      properties:
+        orderId:
+          type: string
+        type:
+          $ref: '#/components/schemas/BillType'
+
+    BillList:
+      type: object
+      properties:
+        bills:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bill'
+        total:
+          type: integer
+
+    # Inventory ───────────────────────────────────────────────────────────────
+    MaterialCategory:
+      type: string
+      enum: [flex, paper, ink, acrylic, glass, other]
+
+    MaterialUnit:
+      type: string
+      enum: [sqft, ml, sheets, kg, pcs]
+
+    LedgerType:
+      type: string
+      enum: [DEDUCT, RESTOCK, REVERSAL, ADJUSTMENT]
+
+    Material:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        category:
+          $ref: '#/components/schemas/MaterialCategory'
+        unit:
+          $ref: '#/components/schemas/MaterialUnit'
+        stock:
+          type: number
+        threshold:
+          type: number
+          description: Low-stock alert fires when stock ≤ threshold
+        costPerUnit:
+          type: number
+        supplier:
+          type: object
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+              format: email
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    StockLedgerEntry:
+      type: object
+      properties:
+        _id:
+          type: string
+        materialId:
+          type: string
+        orderId:
+          type: string
+        type:
+          $ref: '#/components/schemas/LedgerType'
+        qty:
+          type: number
+        balanceAfter:
+          type: number
+        note:
+          type: string
+        performedBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateMaterialRequest:
+      type: object
+      required: [name, category, unit, threshold, costPerUnit]
+      properties:
+        name:
+          type: string
+          minLength: 2
+        category:
+          $ref: '#/components/schemas/MaterialCategory'
+        unit:
+          $ref: '#/components/schemas/MaterialUnit'
+        stock:
+          type: number
+          minimum: 0
+        threshold:
+          type: number
+          minimum: 0
+        costPerUnit:
+          type: number
+          minimum: 0
+        supplier:
+          type: object
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+              format: email
+
+    RestockRequest:
+      type: object
+      required: [qty]
+      properties:
+        qty:
+          type: number
+          minimum: 0
+        note:
+          type: string
+
+    MaterialList:
+      type: object
+      properties:
+        materials:
+          type: array
+          items:
+            $ref: '#/components/schemas/Material'
+        total:
+          type: integer
+
+    # Machines ────────────────────────────────────────────────────────────────
+    MachineType:
+      type: string
+      enum:
+        - flex_printer
+        - screen_printer
+        - laser_cutter
+        - offset_printer
+        - acrylic_printer
+        - glass_printer
+
+    MachineStatus:
+      type: string
+      enum: [active, maintenance, inactive]
+
+    Machine:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/MachineType'
+        department:
+          type: string
+        status:
+          $ref: '#/components/schemas/MachineStatus'
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateMachineRequest:
+      type: object
+      required: [name, type, department]
+      properties:
+        name:
+          type: string
+          minLength: 2
+        type:
+          $ref: '#/components/schemas/MachineType'
+        department:
+          type: string
+          minLength: 2
+        status:
+          $ref: '#/components/schemas/MachineStatus'
+        notes:
+          type: string
+
+    MachineList:
+      type: object
+      properties:
+        machines:
+          type: array
+          items:
+            $ref: '#/components/schemas/Machine'
+        total:
+          type: integer
+
+    # Notifications ───────────────────────────────────────────────────────────
+    Notification:
+      type: object
+      properties:
+        _id:
+          type: string
+        userId:
+          type: string
+        type:
+          type: string
+          example: task_assigned
+        title:
+          type: string
+        message:
+          type: string
+        read:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    NotificationList:
+      type: object
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        total:
+          type: integer
+
+    UnreadCount:
+      type: object
+      properties:
+        count:
+          type: integer
+
+    # Barcodes ────────────────────────────────────────────────────────────────
+    BarcodeType:
+      type: string
+      enum: [initial, final]
+
+    Barcode:
+      type: object
+      properties:
+        _id:
+          type: string
+        orderId:
+          type: string
+        type:
+          $ref: '#/components/schemas/BarcodeType'
+        code:
+          type: string
+        qrDataUrl:
+          type: string
+          description: Base64-encoded PNG data URL
+        createdAt:
+          type: string
+          format: date-time
+
+    ScanEvent:
+      type: object
+      properties:
+        _id:
+          type: string
+        orderId:
+          type: string
+        scannedBy:
+          type: string
+        action:
+          type: string
+        notes:
+          type: string
+        ip:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    GenerateBarcodeRequest:
+      type: object
+      required: [orderId, type]
+      properties:
+        orderId:
+          type: string
+        type:
+          $ref: '#/components/schemas/BarcodeType'
+
+    ScanRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          minLength: 1
+          example: received
+        notes:
+          type: string
+
+    BarcodeList:
+      type: object
+      properties:
+        barcodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Barcode'
+        total:
+          type: integer
+
+    # Analytics ───────────────────────────────────────────────────────────────
+    Overview:
+      type: object
+      properties:
+        orders:
+          type: integer
+        tasks:
+          type: integer
+        revenue:
+          type: number
+        lowStock:
+          type: integer
+
+    StatusCount:
+      type: object
+      properties:
+        _id:
+          type: string
+        count:
+          type: integer
+
+    OrderStats:
+      type: object
+      properties:
+        byStatus:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusCount'
+
+    MethodRevenue:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Payment method
+        total:
+          type: number
+        count:
+          type: integer
+
+    RevenueStats:
+      type: object
+      properties:
+        byMethod:
+          type: array
+          items:
+            $ref: '#/components/schemas/MethodRevenue'
+        total:
+          type: number
+
+    TaskStatusStat:
+      type: object
+      properties:
+        _id:
+          type: string
+        count:
+          type: integer
+        avgMinutes:
+          type: number
+
+    TaskStats:
+      type: object
+      properties:
+        byStatus:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskStatusStat'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PATHS
+# ═══════════════════════════════════════════════════════════════════════════════
+paths:
+
+  # ── Auth ────────────────────────────────────────────────────────────────────
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Obtain a JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user profile
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Users ───────────────────────────────────────────────────────────────────
+  /users:
+    get:
+      tags: [Users]
+      summary: List all users
+      description: Requires `users.read`. Filter by role, availability, or active status.
+      parameters:
+        - name: role
+          in: query
+          schema:
+            $ref: '#/components/schemas/Role'
+        - name: isAvailable
+          in: query
+          schema:
+            type: boolean
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Users]
+      summary: Create a new user / staff account
+      description: Requires `users.create`. Password is hashed server-side.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user by ID
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Users]
+      summary: Update user details
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Users]
+      summary: Soft-delete a user (sets isActive=false)
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{id}/availability:
+    patch:
+      tags: [Users]
+      summary: Toggle staff availability (isAvailable)
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Orders ──────────────────────────────────────────────────────────────────
+  /orders:
+    get:
+      tags: [Orders]
+      summary: List orders
+      description: |
+        Supports filtering by status, jobType, priority, and date range.
+        Staff roles with `own` scope only see their own orders.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: jobType
+          in: query
+          schema:
+            $ref: '#/components/schemas/JobType'
+        - name: priority
+          in: query
+          schema:
+            $ref: '#/components/schemas/Priority'
+        - name: from
+          in: query
+          description: ISO date lower bound (createdAt ≥ from)
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: ISO date upper bound (createdAt ≤ to)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Order list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Orders]
+      summary: Create a new order (starts in `draft`)
+      description: |
+        On creation the order number is auto-generated (`ORD-YYYY-NNNN`).
+        Status is always `draft` — use `PATCH /{id}/status` to advance it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            example:
+              customer:
+                name: Alice Corp
+                phone: "9876543210"
+                email: alice@corp.com
+              jobType: flex_printing
+              items:
+                - description: Flex Banner 4x8
+                  quantity: 2
+                  unit: sqft
+                  unitPrice: 250
+              rawCost: 500
+              taxableValue: 300
+              billSplitPct: 40
+              priority: normal
+      responses:
+        '201':
+          description: Created order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /orders/{id}:
+    get:
+      tags: [Orders]
+      summary: Get order by ID
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Orders]
+      summary: Update order fields (customer, costs, priority, etc.)
+      description: Does not change status. Use `/status` for that.
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderRequest'
+      responses:
+        '200':
+          description: Updated order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Orders]
+      summary: Cancel an order
+      description: Transitions to `cancelled`. Triggers inventory reversal if stock was deducted.
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Cancelled
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /orders/{id}/status:
+    patch:
+      tags: [Orders]
+      summary: Advance the order through the state machine
+      description: |
+        **Valid transitions:**
+        ```
+        draft → confirmed → designing → in_production → finishing → completed → invoiced
+        draft/confirmed/designing → cancelled
+        ```
+        **Side effects triggered automatically:**
+        - `confirmed`: task is auto-assigned to the least-loaded available staff
+        - `completed`: inventory deducted from BOM; final QR barcode generated
+        - `cancelled`: previously deducted inventory is reversed
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetOrderStatusRequest'
+      responses:
+        '200':
+          description: Updated order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          description: Invalid or disallowed transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Invalid transition: draft → invoiced"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /orders/{id}/timeline:
+    get:
+      tags: [Orders]
+      summary: Get the full status history for an order
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Status history array
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timeline:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StatusHistory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Tasks ───────────────────────────────────────────────────────────────────
+  /tasks:
+    get:
+      tags: [Tasks]
+      summary: List tasks
+      description: Staff with `own` scope only see tasks assigned to them.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/TaskStatus'
+        - name: assignedTo
+          in: query
+          description: Filter by assigned user ID
+          schema:
+            type: string
+        - name: orderId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /tasks/{id}:
+    get:
+      tags: [Tasks]
+      summary: Get task by ID
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /tasks/{id}/status:
+    patch:
+      tags: [Tasks]
+      summary: Update task status
+      description: |
+        Timestamps are auto-set:
+        - `in_progress` → sets `startedAt`
+        - `paused` → sets `pausedAt`
+        - `done` → sets `completedAt`, calculates `totalMinutes`, decrements staff `activeTaskCount`
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskStatusRequest'
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /tasks/{id}/assign:
+    patch:
+      tags: [Tasks]
+      summary: Manually re-assign a task to a staff member
+      description: Increments the new assignee's `activeTaskCount`.
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignTaskRequest'
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Payments ────────────────────────────────────────────────────────────────
+  /payments:
+    get:
+      tags: [Payments]
+      summary: List all payments
+      responses:
+        '200':
+          description: Payment list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Payments]
+      summary: Record a new payment
+      description: Status defaults to `completed`. `collectedBy` is set from the authenticated user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+      responses:
+        '201':
+          description: Created payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /payments/order/{orderId}:
+    get:
+      tags: [Payments]
+      summary: Get all payments for an order
+      parameters:
+        - $ref: '#/components/parameters/orderId'
+      responses:
+        '200':
+          description: Payments for the order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /payments/{id}/refund:
+    patch:
+      tags: [Payments]
+      summary: Mark a payment as refunded
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Refunded payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Billing ─────────────────────────────────────────────────────────────────
+  /billing:
+    post:
+      tags: [Billing]
+      summary: Generate a bill for an order
+      description: |
+        Two bill types:
+        - **raw** — records the raw/unbranded cost; series `RAW-YYYY-NNN`; `isProtected: true`
+        - **gst** — generates a tax invoice with CGST/SGST at 9% each; series `TAX-YYYY-NNN`
+
+        Line items are auto-derived from `order.items`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBillRequest'
+      responses:
+        '201':
+          description: Created bill
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bill'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Order not found
+
+  /billing/order/{orderId}:
+    get:
+      tags: [Billing]
+      summary: Get all bills for an order
+      parameters:
+        - $ref: '#/components/parameters/orderId'
+      responses:
+        '200':
+          description: Bill list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /billing/{id}:
+    get:
+      tags: [Billing]
+      summary: Get bill by ID
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Bill
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bill'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Inventory ───────────────────────────────────────────────────────────────
+  /inventory/alerts:
+    get:
+      tags: [Inventory]
+      summary: Get materials where stock ≤ threshold (low-stock alerts)
+      responses:
+        '200':
+          description: Low-stock materials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /inventory:
+    get:
+      tags: [Inventory]
+      summary: List all materials
+      parameters:
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/MaterialCategory'
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Material list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Inventory]
+      summary: Create a new material
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMaterialRequest'
+      responses:
+        '201':
+          description: Created material
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/{id}:
+    get:
+      tags: [Inventory]
+      summary: Get material by ID
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Material
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Inventory]
+      summary: Update material metadata
+      description: Does not adjust stock — use `/restock` for that.
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                category:
+                  $ref: '#/components/schemas/MaterialCategory'
+                threshold:
+                  type: number
+                costPerUnit:
+                  type: number
+                supplier:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    phone:
+                      type: string
+                    email:
+                      type: string
+                      format: email
+      responses:
+        '200':
+          description: Updated material
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /inventory/{id}/restock:
+    post:
+      tags: [Inventory]
+      summary: Increment material stock and log a RESTOCK ledger entry
+      description: Runs inside a MongoDB session for atomicity.
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestockRequest'
+      responses:
+        '200':
+          description: Updated material and ledger entry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  material:
+                    $ref: '#/components/schemas/Material'
+                  transaction:
+                    $ref: '#/components/schemas/StockLedgerEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /inventory/{id}/ledger:
+    get:
+      tags: [Inventory]
+      summary: Get full stock ledger for a material (newest first)
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Ledger entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StockLedgerEntry'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Machines ────────────────────────────────────────────────────────────────
+  /machines:
+    get:
+      tags: [Machines]
+      summary: List machines
+      parameters:
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/MachineType'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/MachineStatus'
+      responses:
+        '200':
+          description: Machine list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Machines]
+      summary: Register a new machine
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMachineRequest'
+      responses:
+        '201':
+          description: Created machine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Machine'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /machines/{id}:
+    patch:
+      tags: [Machines]
+      summary: Update machine details
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                department:
+                  type: string
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Updated machine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Machine'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /machines/{id}/status:
+    patch:
+      tags: [Machines]
+      summary: Set machine operational status
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/MachineStatus'
+      responses:
+        '200':
+          description: Updated machine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Machine'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Notifications ────────────────────────────────────────────────────────────
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications for the authenticated user
+      responses:
+        '200':
+          description: Notification list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Count unread notifications for the authenticated user
+      responses:
+        '200':
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadCount'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /notifications/read-all:
+    patch:
+      tags: [Notifications]
+      summary: Mark all notifications as read
+      responses:
+        '204':
+          description: All marked read (no body)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /notifications/{id}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark a single notification as read
+      description: Returns 404 if the notification belongs to a different user.
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Updated notification
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Barcodes ────────────────────────────────────────────────────────────────
+  /barcodes/generate:
+    post:
+      tags: [Barcodes]
+      summary: Generate a QR barcode for an order
+      description: |
+        Generates a QR code whose data is the orderId string.
+        Use `type: initial` at order creation, `type: final` after completion
+        (this is also called automatically by the state machine on `completed`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateBarcodeRequest'
+      responses:
+        '201':
+          description: Created barcode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Barcode'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /barcodes/order/{orderId}:
+    get:
+      tags: [Barcodes]
+      summary: Get all barcodes for an order
+      parameters:
+        - $ref: '#/components/parameters/orderId'
+      responses:
+        '200':
+          description: Barcodes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BarcodeList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /barcodes/scan/{orderId}:
+    get:
+      tags: [Barcodes]
+      summary: Get order data for a scanned QR code
+      description: Returns the full order object. Used by the scanning station UI.
+      parameters:
+        - $ref: '#/components/parameters/orderId'
+      responses:
+        '200':
+          description: Order data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order:
+                    $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Barcodes]
+      summary: Record a scan event for an order
+      description: Logs the action, actor, IP, and optional notes. Requires `tasks.update`.
+      parameters:
+        - $ref: '#/components/parameters/orderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanRequest'
+      responses:
+        '200':
+          description: Scan event created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scanEvent:
+                    $ref: '#/components/schemas/ScanEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Analytics ───────────────────────────────────────────────────────────────
+  /analytics/overview:
+    get:
+      tags: [Analytics]
+      summary: Dashboard KPIs — total orders, tasks, revenue, and low-stock count
+      description: Revenue sums only `completed` payments.
+      responses:
+        '200':
+          description: Overview metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Overview'
+              example:
+                orders: 142
+                tasks: 89
+                revenue: 285000
+                lowStock: 3
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /analytics/orders:
+    get:
+      tags: [Analytics]
+      summary: Order count grouped by status
+      responses:
+        '200':
+          description: Order stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStats'
+              example:
+                byStatus:
+                  - _id: draft
+                    count: 12
+                  - _id: confirmed
+                    count: 8
+                  - _id: completed
+                    count: 34
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /analytics/revenue:
+    get:
+      tags: [Analytics]
+      summary: Revenue grouped by payment method with overall total
+      description: Only `completed` payments are counted.
+      responses:
+        '200':
+          description: Revenue stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevenueStats'
+              example:
+                byMethod:
+                  - _id: cash
+                    total: 150000
+                    count: 42
+                  - _id: upi
+                    total: 95000
+                    count: 31
+                total: 245000
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /analytics/tasks:
+    get:
+      tags: [Analytics]
+      summary: Task count and average duration grouped by status
+      responses:
+        '200':
+          description: Task stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskStats'
+              example:
+                byStatus:
+                  - _id: done
+                    count: 56
+                    avgMinutes: 48
+                  - _id: in_progress
+                    count: 12
+                    avgMinutes: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'

@@ -15,6 +15,10 @@ vi.mock('../orders/order.model', () => {
   return { Order: mockOrder }
 })
 
+vi.mock('../audit/activity-log.service', () => ({
+  logActivity: vi.fn().mockResolvedValue({}),
+}))
+
 import * as billingService from './billing.service'
 import { Bill } from './bill.model'
 import { Order } from '../orders/order.model'

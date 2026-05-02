@@ -6,6 +6,7 @@ import { authenticate } from '../../middleware/authenticate'
 import { permit } from '../../middleware/authorize'
 import { validate } from '../../middleware/validate'
 import * as inventoryService from './inventory.service'
+import { logActivity } from '../audit/activity-log.service'
 
 export const inventoryRouter = Router()
 
@@ -70,6 +71,7 @@ inventoryRouter.post('/',
   validate(createMaterialSchema),
   asyncHandler(async (req, res) => {
     const material = await inventoryService.createMaterial(req.body)
+    await logActivity({ userId: req.user._id, action: 'create', resource: 'inventory', resourceId: material._id.toString(), details: { name: material.name } })
     res.status(201).json(material)
   })
 )
@@ -89,6 +91,7 @@ inventoryRouter.patch('/:id',
   validate(updateMaterialSchema),
   asyncHandler(async (req, res) => {
     const material = await inventoryService.updateMaterial(req.params.id, req.body)
+    await logActivity({ userId: req.user._id, action: 'update', resource: 'inventory', resourceId: req.params.id, details: req.body })
     res.json(material)
   })
 )
@@ -104,6 +107,7 @@ inventoryRouter.post('/:id/restock',
       req.user._id,
       req.body.note
     )
+    await logActivity({ userId: req.user._id, action: 'update', resource: 'inventory', resourceId: req.params.id, details: { type: 'restock', qty: req.body.qty, note: req.body.note } })
     res.json(result)
   })
 )

@@ -1,5 +1,6 @@
-import mongoose from 'mongoose'
+import mongoose, { Types } from 'mongoose'
 import { Material, StockLedger, MaterialCategory } from './material.model'
+import { IOrder } from '../orders/order.model'
 import { NotFoundError, ConflictError } from '../../utils/AppError'
 
 export interface ListMaterialsQuery {
@@ -114,4 +115,78 @@ export async function getLowStockAlerts() {
     $expr: { $lte: ['$stock', '$threshold'] },
   }).lean()
   return { materials, total: materials.length }
+}
+
+export async function deductForOrder(order: IOrder, performedBy: string | Types.ObjectId) {
+  if (!order.bom || order.bom.length === 0) return
+
+  const session = await mongoose.startSession()
+  session.startTransaction()
+
+  try {
+    for (const entry of order.bom) {
+      const material = await Material.findById(entry.materialId).session(session)
+      if (!material) throw new NotFoundError(`Material ${entry.materialId} not found`)
+
+      material.stock -= entry.qty
+      await material.save({ session })
+
+      await StockLedger.create([{
+        materialId:   entry.materialId,
+        orderId:      order._id,
+        type:         'DEDUCT',
+        qty:          -entry.qty,
+        balanceAfter: material.stock,
+        note:         `Order ${order.orderNumber} completed`,
+        performedBy,
+      }], { session })
+    }
+
+    await session.commitTransaction()
+  } catch (err) {
+    await session.abortTransaction()
+    throw err
+  } finally {
+    session.endSession()
+  }
+}
+
+export async function reverseOrderDeductions(order: IOrder, performedBy: string | Types.ObjectId) {
+  const deductions = await StockLedger.find({
+    orderId: order._id,
+    type:    'DEDUCT',
+  }).lean()
+
+  if (deductions.length === 0) return
+
+  const session = await mongoose.startSession()
+  session.startTransaction()
+
+  try {
+    for (const deduction of deductions) {
+      const material = await Material.findById(deduction.materialId).session(session)
+      if (!material) continue
+
+      const reverseQty = Math.abs(deduction.qty)
+      material.stock += reverseQty
+      await material.save({ session })
+
+      await StockLedger.create([{
+        materialId:   deduction.materialId,
+        orderId:      order._id,
+        type:         'REVERSAL',
+        qty:          reverseQty,
+        balanceAfter: material.stock,
+        note:         `Reversal for cancelled order ${order.orderNumber}`,
+        performedBy,
+      }], { session })
+    }
+
+    await session.commitTransaction()
+  } catch (err) {
+    await session.abortTransaction()
+    throw err
+  } finally {
+    session.endSession()
+  }
 }

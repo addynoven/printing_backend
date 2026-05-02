@@ -15,6 +15,7 @@ export interface IBill extends Document {
   type:         BillType
   seriesNumber: string
   amount:       number
+  discountAmount: number
   isProtected:  boolean
   pdfUrl?:      string
   lineItems:    IBillLineItem[]
@@ -34,6 +35,7 @@ const billSchema = new Schema<IBill>(
     type:         { type: String, enum: BILL_TYPES, required: true },
     seriesNumber: { type: String, required: true, unique: true },
     amount:       { type: Number, required: true },
+    discountAmount: { type: Number, default: 0 },
     isProtected:  { type: Boolean, default: false },
     pdfUrl:       String,
     lineItems: [{
@@ -55,6 +57,5 @@ const billSchema = new Schema<IBill>(
 
 billSchema.index({ orderId: 1 })
 billSchema.index({ type: 1 })
-billSchema.index({ seriesNumber: 1 }, { unique: true })
 
 export const Bill = mongoose.model<IBill>('Bill', billSchema)

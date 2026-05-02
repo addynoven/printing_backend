@@ -216,7 +216,7 @@ describe('Tasks API — Integration', () => {
       // The most restricted action that IS blocked: tasks.delete — but no endpoint.
       // We document this as: ALL roles have tasks.update so 403 on status PATCH is not achievable via role alone.
       // We skip this variant as structurally impossible given the current permission matrix.
-      expect(true).toBe(true) // structural constraint documented above
+      // structural constraint documented above — all roles have tasks.update
     })
   })
 

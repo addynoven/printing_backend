@@ -135,6 +135,7 @@ export interface PaymentData {
 
 export function makePayment(overrides: Partial<PaymentData> = {}): PaymentData {
   return {
+    _id:         'pay_default',
     orderId:     'ord_placeholder',
     billId:      null,
     type:        'advance',
@@ -187,6 +188,7 @@ export interface BillData {
 
 export function makeBill(overrides: Partial<BillData> = {}): BillData {
   return {
+    _id:          'bill_default',
     orderId:      'ord_123',
     type:         'raw',
     seriesNumber: 'RAW-2024-001',
@@ -225,6 +227,76 @@ export function makeNotification(overrides: Partial<NotificationData> = {}): Not
     resourceId:   null,
     resourceType: null,
     read:         false,
+    ...overrides,
+  }
+}
+
+export interface DiscountData {
+  _id?:        string
+  name:        string
+  type:        'percentage' | 'fixed'
+  value:       number
+  scope:       'normal' | 'loyal' | 'all'
+  minOrderValue?: number
+  maxDiscount?:   number
+  isActive:    boolean
+  createdBy:   string
+}
+
+export function makeDiscount(overrides: Partial<DiscountData> = {}): DiscountData {
+  return {
+    name:      'Summer Sale',
+    type:      'percentage',
+    value:     10,
+    scope:     'all',
+    isActive:  true,
+    createdBy: 'usr_admin',
+    ...overrides,
+  }
+}
+
+export interface CustomerData {
+  _id?:        string
+  name:        string
+  phone:       string
+  email?:      string
+  visitCount:  number
+  totalSpend:  number
+  loyaltyTier: 'bronze' | 'silver' | 'gold' | 'platinum'
+  isActive:    boolean
+}
+
+export function makeCustomer(overrides: Partial<CustomerData> = {}): CustomerData {
+  return {
+    name:        'Test Customer',
+    phone:       '9876543210',
+    email:       'customer@test.com',
+    visitCount:  1,
+    totalSpend:  500,
+    loyaltyTier: 'bronze',
+    isActive:    true,
+    ...overrides,
+  }
+}
+
+export interface CouponData {
+  _id?:         string
+  code:         string
+  customerId:   string
+  type:         'percentage' | 'fixed'
+  value:        number
+  status:       'active' | 'used' | 'expired'
+  expiresAt:    Date
+}
+
+export function makeCoupon(overrides: Partial<CouponData> = {}): CouponData {
+  return {
+    code:       'SAVE10',
+    customerId: 'cust_123',
+    type:       'percentage',
+    value:      10,
+    status:     'active',
+    expiresAt:  new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     ...overrides,
   }
 }

@@ -1,5 +1,6 @@
 import { Types } from 'mongoose'
 import { Order, IOrder, OrderStatus, JobType, Priority } from './order.model'
+import { Customer } from '../customers/customer.model'
 import { NotFoundError } from '../../utils/AppError'
 import { transitionOrder } from './order.statemachine'
 
@@ -10,9 +11,11 @@ export interface ListOrdersQuery {
   from?:        string
   to?:          string
   ownerId?:     string
+  q?:           string
 }
 
 export interface CreateOrderInput {
+  customerId?:   string
   customer: { name: string; phone: string; email?: string }
   jobType:  JobType
   items:    Array<{ description: string; quantity: number; unit: string; unitPrice: number }>
@@ -24,6 +27,8 @@ export interface CreateOrderInput {
   priority?:     Priority
   deadline?:     string
   notes?:        string
+  discountAmount?: number
+  appliedDiscountId?: string
   createdBy:     string
 }
 
@@ -36,6 +41,8 @@ export interface UpdateOrderInput {
   priority?:     Priority
   deadline?:     string
   notes?:        string
+  discountAmount?: number
+  appliedDiscountId?: string
 }
 
 export async function listOrders(query: ListOrdersQuery) {
@@ -59,12 +66,37 @@ export async function listOrders(query: ListOrdersQuery) {
     ]
   }
 
+  if (query.q) {
+    const q = query.q.trim()
+    if (q) {
+      filter.$or = [
+        { orderNumber: { $regex: q, $options: 'i' } },
+        { 'customer.name': { $regex: q, $options: 'i' } },
+        { 'customer.phone': { $regex: q, $options: 'i' } },
+      ]
+    }
+  }
+
   const orders = await Order.find(filter).sort({ createdAt: -1 }).lean()
   return { orders, total: orders.length }
 }
 
 export async function createOrder(data: CreateOrderInput): Promise<IOrder> {
-  const order = await Order.create({
+  let customerId = data.customerId
+
+  if (!customerId && data.customer?.phone) {
+    let customer = await Customer.findOne({ phone: data.customer.phone })
+    if (!customer) {
+      customer = await Customer.create({
+        name: data.customer.name,
+        phone: data.customer.phone,
+        email: data.customer.email,
+      })
+    }
+    customerId = customer._id.toString()
+  }
+
+  const payload: Record<string, unknown> = {
     ...data,
     createdBy: new Types.ObjectId(data.createdBy),
     status: 'draft',
@@ -73,7 +105,11 @@ export async function createOrder(data: CreateOrderInput): Promise<IOrder> {
       changedBy: new Types.ObjectId(data.createdBy),
       at:        new Date(),
     }],
-  })
+  }
+  if (customerId) payload.customerId = new Types.ObjectId(customerId)
+  if (data.appliedDiscountId) payload.appliedDiscountId = new Types.ObjectId(data.appliedDiscountId)
+
+  const order = await Order.create(payload)
   return order
 }
 

@@ -10,6 +10,10 @@ vi.mock('./payment.model', () => {
   return { Payment: mockPayment }
 })
 
+vi.mock('../audit/activity-log.service', () => ({
+  logActivity: vi.fn().mockResolvedValue({}),
+}))
+
 import * as paymentService from './payment.service'
 import { Payment } from './payment.model'
 import { makePayment } from '../../../tests/helpers/mock-factory'

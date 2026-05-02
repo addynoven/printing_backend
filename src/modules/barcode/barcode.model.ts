@@ -33,7 +33,7 @@ const barcodeSchema = new Schema<IBarcode>(
 barcodeSchema.index({ orderId: 1 })
 
 const scanEventSchema = new Schema<IScanEvent>({
-  orderId:   { type: Schema.Types.ObjectId, ref: 'Order', required: true, index: true },
+  orderId:   { type: Schema.Types.ObjectId, ref: 'Order', required: true },
   scannedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   action:    { type: String, required: true },
   notes:     String,

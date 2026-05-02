@@ -1,6 +1,9 @@
+import crypto from 'crypto'
 import { Bill, BillType } from './bill.model'
 import { Order } from '../orders/order.model'
-import { NotFoundError } from '../../utils/AppError'
+import { env } from '../../config/env'
+import { logActivity } from '../audit/activity-log.service'
+import { NotFoundError, ForbiddenError } from '../../utils/AppError'
 
 export interface CreateBillInput {
   orderId:   string
@@ -26,27 +29,33 @@ export async function createBill(data: CreateBillInput) {
     amount:      item.quantity * item.unitPrice,
   }))
 
+  const discountAmount = order.discountAmount ?? 0
+
   if (data.type === 'raw') {
-    return await Bill.create({
+    const bill = await Bill.create({
       orderId:      data.orderId,
       type:         'raw',
       seriesNumber,
       amount:       order.rawCost,
+      discountAmount,
       isProtected:  true,
       lineItems,
       createdBy:    data.createdBy,
     })
+    await logActivity({ userId: data.createdBy, action: 'create', resource: 'bill', resourceId: bill._id.toString(), details: { type: 'raw', orderId: data.orderId } })
+    return bill
   }
 
-  const taxableAmount = order.taxableValue
+  const taxableAmount = Math.max(0, order.taxableValue - discountAmount)
   const cgst = Math.round(taxableAmount * GST_RATE)
   const sgst = Math.round(taxableAmount * GST_RATE)
 
-  return await Bill.create({
+  const bill = await Bill.create({
     orderId:      data.orderId,
     type:         'gst',
     seriesNumber,
-    amount:       taxableAmount,
+    amount:       order.taxableValue,
+    discountAmount,
     isProtected:  false,
     lineItems,
     taxableAmount,
@@ -55,6 +64,8 @@ export async function createBill(data: CreateBillInput) {
     totalAmount:  taxableAmount + cgst + sgst,
     createdBy:    data.createdBy,
   })
+  await logActivity({ userId: data.createdBy, action: 'create', resource: 'bill', resourceId: bill._id.toString(), details: { type: 'gst', orderId: data.orderId } })
+  return bill
 }
 
 export async function getBillById(id: string) {
@@ -66,4 +77,20 @@ export async function getBillById(id: string) {
 export async function listBillsForOrder(orderId: string) {
   const bills = await Bill.find({ orderId }).lean()
   return { bills, total: bills.length }
+}
+
+export async function verifyRawBillAccess(billId: string, password: string) {
+  const bill = await Bill.findById(billId).lean()
+  if (!bill) throw new NotFoundError('Bill not found')
+  if (bill.type !== 'raw') return bill
+
+  const a = Buffer.from(password)
+  const b = Buffer.from(env.RAW_BILL_PASSWORD)
+  if (a.length !== b.length) {
+    throw new ForbiddenError('Invalid password')
+  }
+  if (!crypto.timingSafeEqual(a, b)) {
+    throw new ForbiddenError('Invalid password')
+  }
+  return bill
 }

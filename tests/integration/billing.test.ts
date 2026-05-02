@@ -186,6 +186,29 @@ describe('Billing API — Integration', () => {
   })
 
   // ──────────────────────────────────────────────
+  // POST /api/v1/billing/:id/download (raw bill password)
+  // ──────────────────────────────────────────────
+  describe('POST /api/v1/billing/:id/download', () => {
+    it('403 wrong password (same length) for raw bill', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/billing')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .send({ orderId, type: 'raw' })
+
+      const billId = createRes.body._id
+
+      // Same length as env.RAW_BILL_PASSWORD but wrong chars
+      const wrongPassword = 'test_raw_passw0rd'  // 17 chars, same length as test_raw_password
+      const res = await request(app)
+        .post(`/api/v1/billing/${billId}/download`)
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .send({ password: wrongPassword })
+
+      expect(res.status).toBe(403)
+    })
+  })
+
+  // ──────────────────────────────────────────────
   // RBAC — roles with no billing access at all
   // designer has no billing permissions in permissions.ts
   // ──────────────────────────────────────────────

@@ -16,6 +16,8 @@ const envSchema = z.object({
   AWS_SECRET_ACCESS_KEY: z.string().default(''),
   AWS_REGION:        z.string().default('ap-south-1'),
   AWS_S3_BUCKET:     z.string().default('poms-files'),
+  TRUST_PROXY:       z.string().default(''),
+  CORS_ORIGIN:       z.string().default('*'),
 })
 
 const parsed = envSchema.safeParse(process.env)

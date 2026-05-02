@@ -39,6 +39,7 @@ export interface IStatusHistory {
 
 export interface IOrder extends Document {
   orderNumber:   string
+  customerId?:   Types.ObjectId
   customer: {
     name:  string
     phone: string
@@ -57,6 +58,8 @@ export interface IOrder extends Document {
   deadline?:     Date
   assignedTo?:   Types.ObjectId
   advancePaid:   number
+  discountAmount: number
+  appliedDiscountId?: Types.ObjectId
   notes?:        string
   createdBy:     Types.ObjectId
   createdAt:     Date
@@ -66,6 +69,7 @@ export interface IOrder extends Document {
 const orderSchema = new Schema<IOrder>(
   {
     orderNumber: { type: String, unique: true },
+    customerId:   { type: Schema.Types.ObjectId, ref: 'Customer' },
     customer: {
       name:  { type: String, required: true },
       phone: { type: String, required: true },
@@ -105,10 +109,11 @@ const orderSchema = new Schema<IOrder>(
   { timestamps: true }
 )
 
-orderSchema.index({ orderNumber: 1 }, { unique: true })
 orderSchema.index({ status: 1 })
+orderSchema.index({ status: 1, priority: 1 })
 orderSchema.index({ createdAt: -1 })
 orderSchema.index({ 'customer.phone': 1 })
+orderSchema.index({ assignedTo: 1, status: 1 })
 
 orderSchema.pre('save', async function (next) {
   if (this.isNew && !this.orderNumber) {

@@ -1,4 +1,5 @@
 import { Payment, PaymentType, PaymentMethod } from './payment.model'
+import { logActivity } from '../audit/activity-log.service'
 import { NotFoundError } from '../../utils/AppError'
 
 export interface CreatePaymentInput {
@@ -13,7 +14,9 @@ export interface CreatePaymentInput {
 }
 
 export async function createPayment(data: CreatePaymentInput) {
-  return await Payment.create({ ...data, status: 'completed', paidAt: new Date() })
+  const payment = await Payment.create({ ...data, status: 'completed', paidAt: new Date() })
+  await logActivity({ userId: data.collectedBy, action: 'payment_collect', resource: 'payment', resourceId: payment._id.toString(), details: { amount: data.amount, method: data.method, orderId: data.orderId } })
+  return payment
 }
 
 export async function listPayments() {

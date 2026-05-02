@@ -6,6 +6,7 @@ import { authenticate } from '../../middleware/authenticate'
 import { permit } from '../../middleware/authorize'
 import { validate } from '../../middleware/validate'
 import * as userService from './user.service'
+import { logActivity } from '../audit/activity-log.service'
 
 export const userRouter = Router()
 
@@ -47,6 +48,7 @@ userRouter.post('/',
   validate(createUserSchema),
   asyncHandler(async (req, res) => {
     const user = await userService.createUser(req.body)
+    await logActivity({ userId: req.user._id, action: 'create', resource: 'users', resourceId: user!._id.toString(), details: { email: user!.email, role: user!.role } })
     res.status(201).json(user)
   })
 )
@@ -66,6 +68,7 @@ userRouter.patch('/:id',
   validate(updateUserSchema),
   asyncHandler(async (req, res) => {
     const user = await userService.updateUser(req.params.id, req.body)
+    await logActivity({ userId: req.user._id, action: 'update', resource: 'users', resourceId: req.params.id, details: req.body })
     res.json(user)
   })
 )
@@ -75,6 +78,7 @@ userRouter.delete('/:id',
   permit('users', 'delete'),
   asyncHandler(async (req, res) => {
     await userService.deleteUser(req.params.id)
+    await logActivity({ userId: req.user._id, action: 'delete', resource: 'users', resourceId: req.params.id })
     res.status(204).send()
   })
 )
@@ -84,6 +88,7 @@ userRouter.patch('/:id/availability',
   permit('users', 'update'),
   asyncHandler(async (req, res) => {
     const user = await userService.toggleAvailability(req.params.id)
+    await logActivity({ userId: req.user._id, action: 'update', resource: 'users', resourceId: req.params.id, details: { field: 'isAvailable', value: user!.isAvailable } })
     res.json(user)
   })
 )

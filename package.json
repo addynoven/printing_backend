@@ -4,7 +4,7 @@
   "description": "Print Operations Management System — Backend",
   "main": "dist/app.js",
   "scripts": {
-    "dev": "tsx watch src/app.ts",
+    "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/app.js",
     "test": "vitest run",
@@ -12,7 +12,11 @@
     "test:unit": "vitest run src",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
-    "test:all": "vitest run && vitest run --config vitest.e2e.config.ts"
+    "test:system": "vitest run --config vitest.system.config.ts",
+    "test:all": "vitest run && vitest run --config vitest.e2e.config.ts",
+    "seed": "tsx scripts/seed.ts",
+    "seed:dev": "tsx scripts/seed-dev.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -22,23 +26,31 @@
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",
     "helmet": "^7.1.0",
+    "js-yaml": "^4.1.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.4.1",
     "qrcode": "^1.5.3",
+    "swagger-ui-express": "^5.0.1",
     "winston": "^3.13.0",
     "zod": "^3.23.8"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "mongodb-memory-server"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "mongodb-memory-server"
+    ],
+    "overrides": {}
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "@types/js-yaml": "^4.0.9",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.14.2",
     "@types/qrcode": "^1.5.5",
     "@types/supertest": "^6.0.2",
+    "@types/swagger-ui-express": "^4.1.8",
     "mongodb-memory-server": "^9.3.0",
     "supertest": "^7.0.0",
     "tsx": "^4.15.6",

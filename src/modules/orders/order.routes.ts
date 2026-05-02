@@ -10,6 +10,7 @@ import * as orderService from './order.service'
 export const orderRouter = Router()
 
 const createOrderSchema = z.object({
+  customerId:   z.string().optional(),
   customer: z.object({
     name:  z.string().min(2),
     phone: z.string().min(7),
@@ -35,6 +36,8 @@ const createOrderSchema = z.object({
   priority:     z.enum(PRIORITIES).optional(),
   deadline:     z.string().datetime().optional(),
   notes:        z.string().optional(),
+  discountAmount: z.number().min(0).optional(),
+  appliedDiscountId: z.string().optional(),
 })
 
 const updateOrderSchema = z.object({
@@ -50,6 +53,8 @@ const updateOrderSchema = z.object({
   priority:     z.enum(PRIORITIES).optional(),
   deadline:     z.string().datetime().optional(),
   notes:        z.string().optional(),
+  discountAmount: z.number().min(0).optional(),
+  appliedDiscountId: z.string().optional(),
 })
 
 const statusSchema = z.object({
@@ -61,7 +66,7 @@ orderRouter.get('/',
   authenticate,
   permit('orders', 'read'),
   asyncHandler(async (req, res) => {
-    const { status, jobType, priority, from, to } = req.query
+    const { status, jobType, priority, from, to, q } = req.query
     const query: orderService.ListOrdersQuery = {}
 
     if (typeof status   === 'string') query.status   = status   as orderService.ListOrdersQuery['status']
@@ -69,6 +74,7 @@ orderRouter.get('/',
     if (typeof priority === 'string') query.priority = priority as orderService.ListOrdersQuery['priority']
     if (typeof from     === 'string') query.from = from
     if (typeof to       === 'string') query.to   = to
+    if (typeof q        === 'string') query.q    = q
 
     if (req.scopeToOwn) query.ownerId = req.user._id
 

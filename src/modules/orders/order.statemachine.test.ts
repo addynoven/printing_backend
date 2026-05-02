@@ -1,12 +1,25 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
-// Only mock Order model — NOT the statemachine itself
-vi.mock('./order.model', () => {
-  const mockOrder = {
-    findById: vi.fn(),
-  }
-  return { Order: mockOrder }
-})
+vi.mock('./order.model', () => ({
+  Order: { findById: vi.fn() },
+}))
+
+vi.mock('../tasks/task.assigner', () => ({
+  autoAssignTask: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../inventory/inventory.service', () => ({
+  deductForOrder:          vi.fn().mockResolvedValue(undefined),
+  reverseOrderDeductions:  vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../barcode/barcode.service', () => ({
+  generateBarcode: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../audit/activity-log.service', () => ({
+  logActivity: vi.fn().mockResolvedValue(undefined),
+}))
 
 import { canTransition, transitionOrder } from './order.statemachine'
 import { Order } from './order.model'
@@ -91,6 +104,7 @@ describe('Order State Machine', () => {
     it('updates status and pushes to statusHistory, then calls save', async () => {
       const saveMock = vi.fn().mockResolvedValue(undefined)
       const orderDoc = {
+        _id:           new Types.ObjectId(),
         status:        'draft',
         statusHistory: [] as Array<Record<string, unknown>>,
         save:          saveMock,
@@ -109,6 +123,7 @@ describe('Order State Machine', () => {
     it('statusHistory entry has actorId as changedBy', async () => {
       const saveMock = vi.fn().mockResolvedValue(undefined)
       const orderDoc = {
+        _id:           new Types.ObjectId(),
         status:        'draft',
         statusHistory: [] as Array<Record<string, unknown>>,
         save:          saveMock,
@@ -125,6 +140,7 @@ describe('Order State Machine', () => {
 
     it('throws ValidationError for invalid transition (draft → invoiced)', async () => {
       const orderDoc = {
+        _id:           new Types.ObjectId(),
         status:        'draft',
         statusHistory: [],
         save:          vi.fn(),

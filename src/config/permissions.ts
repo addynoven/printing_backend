@@ -1,5 +1,5 @@
 export type Action = 'create' | 'read' | 'update' | 'delete'
-export type Resource = 'users' | 'orders' | 'tasks' | 'billing' | 'payments' | 'inventory' | 'machines' | 'analytics'
+export type Resource = 'users' | 'orders' | 'tasks' | 'billing' | 'payments' | 'inventory' | 'machines' | 'analytics' | 'discounts' | 'attendance' | 'customers' | 'loyalty' | 'activity_logs'
 
 export type ResourcePermission = Partial<Record<Action, boolean>> & { own?: boolean }
 export type RolePermissions = Partial<Record<Resource, ResourcePermission>>
@@ -14,9 +14,10 @@ export const ROLES = [
 export type Role = typeof ROLES[number]
 
 const staff: RolePermissions = {
-  orders:    { read: true, own: true },
-  tasks:     { read: true, update: true, own: true },
-  inventory: { read: true },
+  orders:     { read: true, own: true },
+  tasks:      { read: true, update: true, own: true },
+  inventory:  { read: true },
+  attendance: { create: true, read: true },
 }
 
 export const PERMISSIONS: Record<Role, RolePermissions> = {
@@ -29,6 +30,11 @@ export const PERMISSIONS: Record<Role, RolePermissions> = {
     inventory: { create: true, read: true, update: true, delete: true },
     machines:  { create: true, read: true, update: true, delete: true },
     analytics: { read: true },
+    activity_logs: { read: true },
+    discounts: { create: true, read: true, update: true, delete: true },
+    attendance:{ create: true, read: true, update: true, delete: true },
+    customers: { create: true, read: true, update: true, delete: true },
+    loyalty:   { create: true, read: true, update: true, delete: true },
   },
   admin: {
     users:     { create: true, read: true, update: true },
@@ -39,6 +45,11 @@ export const PERMISSIONS: Record<Role, RolePermissions> = {
     inventory: { create: true, read: true, update: true },
     machines:  { create: true, read: true, update: true },
     analytics: { read: true },
+    activity_logs: { read: true },
+    discounts: { create: true, read: true, update: true, delete: true },
+    attendance:{ create: true, read: true, update: true, delete: true },
+    customers: { create: true, read: true, update: true },
+    loyalty:   { create: true, read: true, update: true, delete: true },
   },
   sub_admin: {
     users:     { read: true },
@@ -48,6 +59,11 @@ export const PERMISSIONS: Record<Role, RolePermissions> = {
     payments:  { read: true },
     inventory: { read: true },
     machines:  { read: true },
+    discounts: { read: true },
+    attendance:{ create: true, read: true, update: true },
+    customers: { create: true, read: true, update: true },
+    loyalty:   { read: true },
+    activity_logs: { read: true },
   },
   designer: {
     orders:    { read: true },
