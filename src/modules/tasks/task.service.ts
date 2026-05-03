@@ -1,8 +1,18 @@
 import { Types } from 'mongoose'
-import { Task, TaskStatus } from './task.model'
+import { Task, TaskStatus, TaskPriority } from './task.model'
+import { Order, JobType } from '../orders/order.model'
 import { User } from '../auth/auth.model'
-import { NotFoundError } from '../../utils/AppError'
+import { Notification } from '../notifications/notification.model'
+import { NotFoundError, BadRequestError } from '../../utils/AppError'
 import { PaginationParams } from '../../utils/pagination'
+
+export interface CreateTaskInput {
+  orderId:     string
+  type:        JobType
+  assignedTo?: string
+  priority?:   TaskPriority
+  notes?:      string
+}
 
 export interface ListTasksQuery {
   status?:     TaskStatus
@@ -45,6 +55,44 @@ export async function getTaskById(id: string) {
   return task
 }
 
+export async function createTask(data: CreateTaskInput) {
+  const order = await Order.findById(data.orderId).lean()
+  if (!order) throw new NotFoundError('Order not found')
+
+  let assignedTo: Types.ObjectId | null = null
+  if (data.assignedTo) {
+    const user = await User.findById(data.assignedTo).lean()
+    if (!user) throw new BadRequestError('Assigned user not found')
+    assignedTo = new Types.ObjectId(data.assignedTo)
+  }
+
+  const task = await Task.create({
+    orderId:    new Types.ObjectId(data.orderId),
+    type:       data.type,
+    status:     assignedTo ? 'assigned' : 'unassigned',
+    assignedTo,
+    priority:   data.priority ?? order.priority ?? 'normal',
+    notes:      data.notes,
+  })
+
+  if (assignedTo) {
+    await User.findByIdAndUpdate(assignedTo, {
+      $inc: { activeTaskCount: 1 },
+      $set: { lastAssignedAt: new Date() },
+    })
+    await Notification.create({
+      userId:       assignedTo,
+      type:         'task_assigned',
+      title:        'New task assigned',
+      message:      `Task for order ${order.orderNumber} (${data.type}) has been assigned to you.`,
+      resourceId:   task._id,
+      resourceType: 'task',
+    })
+  }
+
+  return task
+}
+
 export async function updateTaskStatus(id: string, data: UpdateTaskStatusInput, _actorId: string) {
   const task = await Task.findById(id)
   if (!task) throw new NotFoundError('Task not found')
@@ -62,7 +110,22 @@ export async function updateTaskStatus(id: string, data: UpdateTaskStatusInput, 
       task.totalMinutes = Math.round((completedAt.getTime() - task.startedAt.getTime()) / 60_000)
     }
     await task.save()
-    await User.findByIdAndUpdate(task.assignedTo, { $inc: { activeTaskCount: -1 } })
+    if (task.assignedTo) {
+      await User.findByIdAndUpdate(task.assignedTo, { $inc: { activeTaskCount: -1 } })
+    }
+
+    // Notify the order owner that this task is done
+    const order = await Order.findById(task.orderId).select('orderNumber createdBy').lean()
+    if (order && order.createdBy) {
+      await Notification.create({
+        userId:       order.createdBy,
+        type:         'order_completed',
+        title:        'Task completed',
+        message:      `${task.type} task for order ${order.orderNumber} has been completed.`,
+        resourceId:   task._id,
+        resourceType: 'task',
+      })
+    }
     return task
   }
 

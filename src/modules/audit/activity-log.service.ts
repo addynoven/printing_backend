@@ -1,5 +1,6 @@
 import { ActivityLog } from './activity-log.model'
 import { logger } from '../../utils/logger'
+import { PaginationParams } from '../../utils/pagination'
 
 export interface LogActivityInput {
   userId?:     string
@@ -18,21 +19,43 @@ export async function logActivity(data: LogActivityInput) {
   }
 }
 
-export async function listActivityLogs(query: {
-  userId?: string
-  resource?: string
+export interface ListActivityLogsQuery {
+  userId?:     string
+  resource?:   string
   resourceId?: string
-  limit?: number
-}) {
+  action?:     string
+  from?:       string
+  to?:         string
+  pagination?: PaginationParams
+}
+
+export async function listActivityLogs(query: ListActivityLogsQuery) {
   const filter: Record<string, unknown> = {}
-  if (query.userId) filter.userId = query.userId
-  if (query.resource) filter.resource = query.resource
+  if (query.userId)     filter.userId     = query.userId
+  if (query.resource)   filter.resource   = query.resource
   if (query.resourceId) filter.resourceId = query.resourceId
+  if (query.action)     filter.action     = query.action
 
-  const logs = await ActivityLog.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(query.limit ?? 50)
-    .lean()
+  if (query.from || query.to) {
+    const dateFilter: Record<string, Date> = {}
+    if (query.from) dateFilter.$gte = new Date(query.from)
+    if (query.to)   dateFilter.$lte = new Date(query.to)
+    filter.createdAt = dateFilter
+  }
 
-  return { logs, total: logs.length }
+  const p = query.pagination
+  const cursor = p
+    ? ActivityLog.find(filter).sort({ createdAt: -1 }).skip(p.skip).limit(p.limit)
+    : ActivityLog.find(filter).sort({ createdAt: -1 }).limit(50)
+
+  const logs  = await cursor.lean()
+  const total = p ? await ActivityLog.countDocuments(filter) : logs.length
+
+  return {
+    logs,
+    total,
+    page:  p?.page  ?? 1,
+    limit: p?.limit ?? logs.length,
+    pages: p ? Math.max(1, Math.ceil(total / p.limit)) : 1,
+  }
 }

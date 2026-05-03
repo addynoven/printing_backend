@@ -60,6 +60,7 @@ export interface IOrder extends Document {
   advancePaid:   number
   discountAmount: number
   appliedDiscountId?: Types.ObjectId
+  appliedCouponCode?: string
   notes?:        string
   createdBy:     Types.ObjectId
   createdAt:     Date
@@ -103,6 +104,9 @@ const orderSchema = new Schema<IOrder>(
     deadline:    { type: Date },
     assignedTo:  { type: Schema.Types.ObjectId, ref: 'User' },
     advancePaid: { type: Number, default: 0 },
+    discountAmount:    { type: Number, default: 0 },
+    appliedDiscountId: { type: Schema.Types.ObjectId, ref: 'Discount' },
+    appliedCouponCode: { type: String, uppercase: true, trim: true },
     notes:       { type: String },
     createdBy:   { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },

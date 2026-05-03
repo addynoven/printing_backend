@@ -94,6 +94,66 @@ describe('Tasks API — Integration', () => {
   })
 
   // ──────────────────────────────────────────────
+  // POST /api/v1/tasks
+  // ──────────────────────────────────────────────
+  describe('POST /api/v1/tasks', () => {
+    it('201 — creates an unassigned task when no assignedTo', async () => {
+      const res = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ orderId, type: 'flex_printing' })
+
+      expect(res.status).toBe(201)
+      expect(res.body.status).toBe('unassigned')
+      expect(res.body.assignedTo).toBeNull()
+    })
+
+    it('201 — assigns task and bumps user activeTaskCount', async () => {
+      const staff = await User.create(makeUser({
+        email: 'taskassign@poms.com',
+        password: 'password123',
+        role: 'flex_printing_staff',
+      }))
+
+      const res = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ orderId, type: 'flex_printing', assignedTo: staff._id.toString() })
+
+      expect(res.status).toBe(201)
+      expect(res.body.status).toBe('assigned')
+      expect(res.body.assignedTo).toBe(staff._id.toString())
+
+      const reloaded = await User.findById(staff._id).lean()
+      expect(reloaded?.activeTaskCount).toBe(1)
+    })
+
+    it('404 — order not found', async () => {
+      const fakeOrderId = new Types.ObjectId().toString()
+      const res = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ orderId: fakeOrderId, type: 'flex_printing' })
+
+      expect(res.status).toBe(404)
+    })
+
+    it('400 — invalid type enum', async () => {
+      const res = await request(app)
+        .post('/api/v1/tasks')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ orderId, type: 'not_a_real_type' })
+
+      expect(res.status).toBe(400)
+    })
+
+    it('401 — no token', async () => {
+      const res = await request(app).post('/api/v1/tasks').send({ orderId, type: 'flex_printing' })
+      expect(res.status).toBe(401)
+    })
+  })
+
+  // ──────────────────────────────────────────────
   // GET /api/v1/tasks/:id
   // ──────────────────────────────────────────────
   describe('GET /api/v1/tasks/:id', () => {

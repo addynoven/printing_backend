@@ -39,6 +39,7 @@ const createOrderSchema = z.object({
   notes:        z.string().optional(),
   discountAmount: z.number().min(0).optional(),
   appliedDiscountId: z.string().optional(),
+  couponCode:   z.string().min(1).optional(),
 })
 
 const updateOrderSchema = z.object({

@@ -67,3 +67,39 @@ analyticsRouter.get('/machines',
     res.json(result)
   })
 )
+
+analyticsRouter.get('/attendance',
+  authenticate,
+  permit('analytics', 'read'),
+  asyncHandler(async (req, res) => {
+    const result = await analyticsService.getAttendanceStats(dateRange(req))
+    res.json(result)
+  })
+)
+
+analyticsRouter.get('/customers',
+  authenticate,
+  permit('analytics', 'read'),
+  asyncHandler(async (req, res) => {
+    const result = await analyticsService.getCustomerStats(dateRange(req))
+    res.json(result)
+  })
+)
+
+analyticsRouter.get('/discounts',
+  authenticate,
+  permit('analytics', 'read'),
+  asyncHandler(async (req, res) => {
+    const result = await analyticsService.getDiscountStats(dateRange(req))
+    res.json(result)
+  })
+)
+
+analyticsRouter.get('/loyalty',
+  authenticate,
+  permit('analytics', 'read'),
+  asyncHandler(async (req, res) => {
+    const result = await analyticsService.getLoyaltyStats(dateRange(req))
+    res.json(result)
+  })
+)

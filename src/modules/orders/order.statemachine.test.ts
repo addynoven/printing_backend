@@ -21,6 +21,14 @@ vi.mock('../audit/activity-log.service', () => ({
   logActivity: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../customers/customer.service', () => ({
+  updateCustomerStats: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../notifications/notification.model', () => ({
+  Notification: { create: vi.fn().mockResolvedValue({}) },
+}))
+
 import { canTransition, transitionOrder } from './order.statemachine'
 import { Order } from './order.model'
 import { NotFoundError, ValidationError } from '../../utils/AppError'

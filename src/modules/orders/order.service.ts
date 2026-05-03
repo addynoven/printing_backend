@@ -1,6 +1,9 @@
 import { Types } from 'mongoose'
 import { Order, IOrder, OrderStatus, JobType, Priority } from './order.model'
 import { Customer } from '../customers/customer.model'
+import { applyCoupon } from '../loyalty/loyalty.service'
+import { logActivity } from '../audit/activity-log.service'
+import { logger } from '../../utils/logger'
 import { NotFoundError } from '../../utils/AppError'
 import { transitionOrder } from './order.statemachine'
 import { PaginationParams } from '../../utils/pagination'
@@ -31,6 +34,7 @@ export interface CreateOrderInput {
   notes?:        string
   discountAmount?: number
   appliedDiscountId?: string
+  couponCode?:   string
   createdBy:     string
 }
 
@@ -109,8 +113,9 @@ export async function createOrder(data: CreateOrderInput): Promise<IOrder> {
     customerId = customer._id.toString()
   }
 
+  const { couponCode, ...rest } = data
   const payload: Record<string, unknown> = {
-    ...data,
+    ...rest,
     createdBy: new Types.ObjectId(data.createdBy),
     status: 'draft',
     statusHistory: [{
@@ -123,6 +128,33 @@ export async function createOrder(data: CreateOrderInput): Promise<IOrder> {
   if (data.appliedDiscountId) payload.appliedDiscountId = new Types.ObjectId(data.appliedDiscountId)
 
   const order = await Order.create(payload)
+
+  if (couponCode) {
+    try {
+      const subtotal = order.rawCost + order.taxableValue
+      const { discount } = await applyCoupon(couponCode, order._id.toString(), subtotal)
+      order.discountAmount     = (order.discountAmount ?? 0) + discount
+      order.appliedCouponCode  = couponCode.toUpperCase()
+      await order.save()
+      await logActivity({
+        userId:     data.createdBy,
+        action:     'discount_apply',
+        resource:   'orders',
+        resourceId: order._id.toString(),
+        details:    { couponCode: couponCode.toUpperCase(), discount },
+      })
+    } catch (err) {
+      // Roll the order back so the coupon failure isn't silently absorbed
+      await Order.deleteOne({ _id: order._id })
+      logger.warn('Order rolled back due to coupon failure', {
+        orderId: order._id.toString(),
+        couponCode,
+        error:   err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
+  }
+
   return order
 }
 

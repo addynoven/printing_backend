@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { TASK_STATUSES } from './task.model'
+import { TASK_STATUSES, TASK_PRIORITIES } from './task.model'
+import { JOB_TYPES } from '../orders/order.model'
 import { asyncHandler } from '../../utils/asyncHandler'
 import { authenticate } from '../../middleware/authenticate'
 import { permit } from '../../middleware/authorize'
@@ -19,6 +20,14 @@ const assignSchema = z.object({
   assignedTo: z.string(),
 })
 
+const createTaskSchema = z.object({
+  orderId:    z.string().min(1),
+  type:       z.enum(JOB_TYPES),
+  assignedTo: z.string().optional(),
+  priority:   z.enum(TASK_PRIORITIES).optional(),
+  notes:      z.string().optional(),
+})
+
 taskRouter.get('/',
   authenticate,
   permit('tasks', 'read'),
@@ -32,6 +41,16 @@ taskRouter.get('/',
     query.pagination = parsePagination(req.query)
     const result = await taskService.listTasks(query)
     res.json(result)
+  })
+)
+
+taskRouter.post('/',
+  authenticate,
+  permit('tasks', 'create'),
+  validate(createTaskSchema),
+  asyncHandler(async (req, res) => {
+    const task = await taskService.createTask(req.body)
+    res.status(201).json(task)
   })
 )
 
