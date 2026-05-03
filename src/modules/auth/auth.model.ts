@@ -13,6 +13,8 @@ export interface IUser extends Document {
   lastAssignedAt:  Date
   devices:         Array<{ deviceId: string; userAgent: string; ip: string; lastSeen: Date }>
   isActive:        boolean
+  passwordResetTokenHash?:    string
+  passwordResetExpiresAt?:    Date
   comparePassword(candidate: string): Promise<boolean>
 }
 
@@ -32,7 +34,9 @@ const userSchema = new Schema<IUser>(
       ip:        String,
       lastSeen:  Date,
     }],
-    isActive: { type: Boolean, default: true },
+    isActive:                { type: Boolean, default: true },
+    passwordResetTokenHash:  { type: String, select: false },
+    passwordResetExpiresAt:  { type: Date,   select: false },
   },
   { timestamps: true }
 )

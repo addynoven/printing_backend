@@ -11,15 +11,23 @@ vi.mock('../auth/auth.model', () => ({
   },
 }))
 
+vi.mock('../notifications/notification.model', () => ({
+  Notification: { create: vi.fn() },
+}))
+
 import { autoAssignTask } from './task.assigner'
 import { Task } from './task.model'
 import { User } from '../auth/auth.model'
+import { Notification } from '../notifications/notification.model'
 import { Types } from 'mongoose'
 
 const MockTask = vi.mocked(Task as unknown as { create: ReturnType<typeof vi.fn> })
 const MockUser = vi.mocked(User as unknown as {
   findOne:           ReturnType<typeof vi.fn>
   findByIdAndUpdate: ReturnType<typeof vi.fn>
+})
+const MockNotification = vi.mocked(Notification as unknown as {
+  create: ReturnType<typeof vi.fn>
 })
 
 // User.findOne().sort() chain helper
@@ -49,7 +57,7 @@ describe('Task Assigner — Unit Tests', () => {
       const order   = makeOrder('flex_printing')
       const staffId = new Types.ObjectId()
       MockUser.findOne.mockReturnValue(userChain({ _id: staffId }))
-      MockTask.create.mockResolvedValue({})
+      MockTask.create.mockResolvedValue({ _id: new Types.ObjectId() })
       MockUser.findByIdAndUpdate.mockResolvedValue({})
 
       await autoAssignTask(order as never)
@@ -66,7 +74,7 @@ describe('Task Assigner — Unit Tests', () => {
       const order   = makeOrder('screen_printing')
       const staffId = new Types.ObjectId()
       MockUser.findOne.mockReturnValue(userChain({ _id: staffId }))
-      MockTask.create.mockResolvedValue({})
+      MockTask.create.mockResolvedValue({ _id: new Types.ObjectId() })
       MockUser.findByIdAndUpdate.mockResolvedValue({})
 
       await autoAssignTask(order as never)
@@ -84,7 +92,7 @@ describe('Task Assigner — Unit Tests', () => {
       const order   = makeOrder('flex_printing')
       const staffId = new Types.ObjectId()
       MockUser.findOne.mockReturnValue(userChain({ _id: staffId }))
-      MockTask.create.mockResolvedValue({})
+      MockTask.create.mockResolvedValue({ _id: new Types.ObjectId() })
       MockUser.findByIdAndUpdate.mockResolvedValue({})
 
       await autoAssignTask(order as never)
@@ -101,7 +109,7 @@ describe('Task Assigner — Unit Tests', () => {
     it('creates an unassigned task and skips User.findByIdAndUpdate when no staff available', async () => {
       const order = makeOrder('flex_printing')
       MockUser.findOne.mockReturnValue(userChain(null))
-      MockTask.create.mockResolvedValue({})
+      MockTask.create.mockResolvedValue({ _id: new Types.ObjectId() })
 
       await autoAssignTask(order as never)
 
@@ -116,7 +124,7 @@ describe('Task Assigner — Unit Tests', () => {
       const staffId = new Types.ObjectId()
       const sortMock = vi.fn().mockResolvedValue({ _id: staffId })
       MockUser.findOne.mockReturnValue({ sort: sortMock })
-      MockTask.create.mockResolvedValue({})
+      MockTask.create.mockResolvedValue({ _id: new Types.ObjectId() })
       MockUser.findByIdAndUpdate.mockResolvedValue({})
 
       await autoAssignTask(order as never)
@@ -130,7 +138,7 @@ describe('Task Assigner — Unit Tests', () => {
       const order   = makeOrder('flex_printing')
       const staffId = new Types.ObjectId()
       MockUser.findOne.mockReturnValue(userChain({ _id: staffId }))
-      MockTask.create.mockResolvedValue({})
+      MockTask.create.mockResolvedValue({ _id: new Types.ObjectId() })
       MockUser.findByIdAndUpdate.mockResolvedValue({})
 
       await autoAssignTask(order as never)
@@ -139,6 +147,37 @@ describe('Task Assigner — Unit Tests', () => {
         staffId,
         expect.objectContaining({ $set: { lastAssignedAt: expect.any(Date) } })
       )
+    })
+
+    it('sends a task_assigned notification to the assigned staff', async () => {
+      const order   = makeOrder('flex_printing')
+      const staffId = new Types.ObjectId()
+      const taskId  = new Types.ObjectId()
+      MockUser.findOne.mockReturnValue(userChain({ _id: staffId }))
+      MockTask.create.mockResolvedValue({ _id: taskId })
+      MockUser.findByIdAndUpdate.mockResolvedValue({})
+      MockNotification.create.mockResolvedValue({})
+
+      await autoAssignTask(order as never)
+
+      expect(MockNotification.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId:       staffId,
+          type:         'task_assigned',
+          resourceId:   taskId,
+          resourceType: 'task',
+        })
+      )
+    })
+
+    it('does NOT send a notification when no staff is available', async () => {
+      const order = makeOrder('flex_printing')
+      MockUser.findOne.mockReturnValue(userChain(null))
+      MockTask.create.mockResolvedValue({ _id: new Types.ObjectId() })
+
+      await autoAssignTask(order as never)
+
+      expect(MockNotification.create).not.toHaveBeenCalled()
     })
   })
 })

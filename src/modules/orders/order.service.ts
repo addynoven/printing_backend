@@ -3,6 +3,7 @@ import { Order, IOrder, OrderStatus, JobType, Priority } from './order.model'
 import { Customer } from '../customers/customer.model'
 import { NotFoundError } from '../../utils/AppError'
 import { transitionOrder } from './order.statemachine'
+import { PaginationParams } from '../../utils/pagination'
 
 export interface ListOrdersQuery {
   status?:      OrderStatus
@@ -12,6 +13,7 @@ export interface ListOrdersQuery {
   to?:          string
   ownerId?:     string
   q?:           string
+  pagination?:  PaginationParams
 }
 
 export interface CreateOrderInput {
@@ -77,8 +79,19 @@ export async function listOrders(query: ListOrdersQuery) {
     }
   }
 
-  const orders = await Order.find(filter).sort({ createdAt: -1 }).lean()
-  return { orders, total: orders.length }
+  const p = query.pagination
+  const cursor = Order.find(filter).sort({ createdAt: -1 })
+  if (p) cursor.skip(p.skip).limit(p.limit)
+
+  const orders = await cursor.lean()
+  const total  = p ? await Order.countDocuments(filter) : orders.length
+  return {
+    orders,
+    total,
+    page:  p?.page  ?? 1,
+    limit: p?.limit ?? orders.length,
+    pages: p ? Math.max(1, Math.ceil(total / p.limit)) : 1,
+  }
 }
 
 export async function createOrder(data: CreateOrderInput): Promise<IOrder> {

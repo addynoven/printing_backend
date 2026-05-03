@@ -6,6 +6,7 @@ import { authenticate } from '../../middleware/authenticate'
 import { permit } from '../../middleware/authorize'
 import { validate } from '../../middleware/validate'
 import * as taskService from './task.service'
+import { parsePagination } from '../../utils/pagination'
 
 export const taskRouter = Router()
 
@@ -28,6 +29,7 @@ taskRouter.get('/',
     if (typeof assignedTo === 'string') query.assignedTo = assignedTo
     if (typeof orderId    === 'string') query.orderId    = orderId
     if (req.scopeToOwn) query.ownerId = req.user._id
+    query.pagination = parsePagination(req.query)
     const result = await taskService.listTasks(query)
     res.json(result)
   })

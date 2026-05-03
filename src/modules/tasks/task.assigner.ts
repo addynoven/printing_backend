@@ -1,6 +1,7 @@
 import { IOrder, JobType } from '../orders/order.model'
 import { Task } from './task.model'
 import { User } from '../auth/auth.model'
+import { Notification } from '../notifications/notification.model'
 import { Role } from '../../config/permissions'
 
 const JOB_ROLE_MAP: Record<JobType, Role> = {
@@ -20,7 +21,7 @@ export async function autoAssignTask(order: IOrder): Promise<void> {
     .sort({ activeTaskCount: 1 })
 
   if (staff) {
-    await Task.create({
+    const task = await Task.create({
       orderId:    order._id,
       type:       order.jobType,
       status:     'assigned',
@@ -30,6 +31,14 @@ export async function autoAssignTask(order: IOrder): Promise<void> {
     await User.findByIdAndUpdate(staff._id, {
       $inc: { activeTaskCount: 1 },
       $set: { lastAssignedAt: new Date() },
+    })
+    await Notification.create({
+      userId:       staff._id,
+      type:         'task_assigned',
+      title:        'New task assigned',
+      message:      `Task for order ${order.orderNumber} (${order.jobType}) has been assigned to you.`,
+      resourceId:   task._id,
+      resourceType: 'task',
     })
   } else {
     await Task.create({

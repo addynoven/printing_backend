@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { asyncHandler } from '../../utils/asyncHandler'
 import { authenticate } from '../../middleware/authenticate'
 import * as notificationService from './notification.service'
+import { parsePagination } from '../../utils/pagination'
 
 export const notificationRouter = Router()
 
@@ -16,7 +17,11 @@ notificationRouter.get('/unread-count',
 notificationRouter.get('/',
   authenticate,
   asyncHandler(async (req, res) => {
-    const result = await notificationService.listNotifications(req.user._id)
+    const query: notificationService.ListNotificationsQuery = {
+      pagination: parsePagination(req.query),
+    }
+    if (typeof req.query.read === 'string') query.read = req.query.read === 'true'
+    const result = await notificationService.listNotifications(req.user._id, query)
     res.json(result)
   })
 )

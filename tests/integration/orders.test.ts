@@ -51,6 +51,26 @@ describe('Orders API — Integration', () => {
       expect(res.body.total).toBe(2)
     })
 
+    it('200 — paginates with page/limit and exposes pages metadata', async () => {
+      for (let i = 0; i < 5; i++) {
+        await Order.create({
+          ...makeOrder({ customer: { name: `Cust ${i}`, phone: `90000000${i}0`, email: `c${i}@x.com` } }),
+          createdBy: adminId,
+        })
+      }
+
+      const res = await request(app)
+        .get('/api/v1/orders?page=2&limit=2')
+        .set('Authorization', `Bearer ${adminToken}`)
+
+      expect(res.status).toBe(200)
+      expect(res.body.total).toBe(5)
+      expect(res.body.page).toBe(2)
+      expect(res.body.limit).toBe(2)
+      expect(res.body.pages).toBe(3)
+      expect(res.body.orders).toHaveLength(2)
+    })
+
     it('200 — filters by status query param', async () => {
       await Order.create({ ...makeOrder(), status: 'confirmed', createdBy: adminId })
       await Order.create({ ...makeOrder({ customer: { name: 'Draft Customer', phone: '7777777777', email: 'c3@test.com' } }), status: 'draft', createdBy: adminId })
