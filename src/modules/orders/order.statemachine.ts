@@ -1,5 +1,6 @@
 import { Types } from 'mongoose'
 import { Order, IOrder, OrderStatus } from './order.model'
+import { Notification } from '../notifications/notification.model'
 import { logActivity } from '../audit/activity-log.service'
 import { ValidationError } from '../../utils/AppError'
 import { logger } from '../../utils/logger'
@@ -26,6 +27,31 @@ async function generateFinalBarcode(order: IOrder): Promise<void> {
 async function updateCustomerOnCompletion(order: IOrder): Promise<void> {
   if (!order.customerId) return
   await updateCustomerStats(order.customerId.toString(), order.rawCost + order.taxableValue)
+}
+
+async function notifyOrderStatus(order: IOrder, newStatus: OrderStatus): Promise<void> {
+  if (!order.createdBy) return
+
+  const titles: Partial<Record<OrderStatus, string>> = {
+    confirmed:     'Order confirmed',
+    designing:     'Order in design',
+    in_production: 'Order in production',
+    finishing:     'Order in finishing',
+    completed:     'Order completed',
+    invoiced:      'Order invoiced',
+    cancelled:     'Order cancelled',
+  }
+  const title = titles[newStatus]
+  if (!title) return
+
+  await Notification.create({
+    userId:       order.createdBy,
+    type:         newStatus === 'completed' ? 'order_completed' : 'task_assigned',
+    title,
+    message:      `Order ${order.orderNumber} is now ${newStatus.replace(/_/g, ' ')}.`,
+    resourceId:   order._id,
+    resourceType: 'order',
+  })
 }
 
 const HOOKS: Partial<Record<OrderStatus, Array<(order: IOrder, actorId: string) => Promise<void>>>> = {
@@ -78,6 +104,17 @@ export async function transitionOrder(
     resourceId: order._id.toString(),
     details: { from: previousStatus, to: newStatus, note },
   })
+
+  // Notifications fire on every transition; hook failures shouldn't suppress them.
+  try {
+    await notifyOrderStatus(order, newStatus)
+  } catch (err) {
+    logger.warn('Order status notification failed', {
+      orderId,
+      newStatus,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 
   // Hooks run after the transition is persisted. Failures are logged but do
   // not roll back the status change — the transition is the source of truth.

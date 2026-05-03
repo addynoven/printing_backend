@@ -11,14 +11,26 @@ vi.mock('./task.model', () => {
 
 vi.mock('../auth/auth.model', () => {
   const mockUser = {
+    findById:          vi.fn(),
     findByIdAndUpdate: vi.fn(),
   }
   return { User: mockUser }
 })
 
+vi.mock('../orders/order.model', () => ({
+  Order:        { findById: vi.fn() },
+  JOB_TYPES:    ['flex_printing', 'screen_printing', 'design', 'laser_cut', 'offset', 'acrylic', 'glass', 'binding'],
+}))
+
+vi.mock('../notifications/notification.model', () => ({
+  Notification: { create: vi.fn().mockResolvedValue({}) },
+}))
+
 import * as taskService from './task.service'
 import { Task } from './task.model'
 import { User } from '../auth/auth.model'
+import { Order } from '../orders/order.model'
+import { Notification } from '../notifications/notification.model'
 import { makeTask, makeUser } from '../../../tests/helpers/mock-factory'
 import { NotFoundError } from '../../utils/AppError'
 import { Types } from 'mongoose'
@@ -30,7 +42,16 @@ const MockTask = vi.mocked(Task as unknown as {
 })
 
 const MockUser = vi.mocked(User as unknown as {
+  findById:          ReturnType<typeof vi.fn>
   findByIdAndUpdate: ReturnType<typeof vi.fn>
+})
+
+const MockOrder = vi.mocked(Order as unknown as {
+  findById: ReturnType<typeof vi.fn>
+})
+
+const MockNotification = vi.mocked(Notification as unknown as {
+  create: ReturnType<typeof vi.fn>
 })
 
 function chain(value: unknown) {
@@ -163,6 +184,11 @@ describe('Task Service — Unit Tests', () => {
       const task = makeTaskDoc({ status: 'in_progress', startedAt, assignedTo: new Types.ObjectId() })
       MockTask.findById.mockResolvedValueOnce(task)
       MockUser.findByIdAndUpdate.mockResolvedValueOnce({})
+      MockOrder.findById.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue({ orderNumber: 'ORD-1', createdBy: new Types.ObjectId() }),
+        }),
+      })
 
       await taskService.updateTaskStatus('task_001', { status: 'done' }, 'actor_001')
 
@@ -172,6 +198,9 @@ describe('Task Service — Unit Tests', () => {
       expect(MockUser.findByIdAndUpdate).toHaveBeenCalledWith(
         task.assignedTo,
         { $inc: { activeTaskCount: -1 } }
+      )
+      expect(MockNotification.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'order_completed', resourceType: 'task' })
       )
     })
 

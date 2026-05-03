@@ -3,6 +3,8 @@ import request from 'supertest'
 import { app } from '../../src/app'
 import { User } from '../../src/modules/auth/auth.model'
 import { Order } from '../../src/modules/orders/order.model'
+import { Customer } from '../../src/modules/customers/customer.model'
+import { Coupon } from '../../src/modules/loyalty/coupon.model'
 import { makeUser, makeOrder } from '../helpers/mock-factory'
 import jwt from 'jsonwebtoken'
 import { env } from '../../src/config/env'
@@ -165,6 +167,45 @@ describe('Orders API — Integration', () => {
         .send(orderPayload({ items: [] }))
 
       expect(res.status).toBe(400)
+    })
+
+    it('201 — applies a valid coupon and stores discountAmount + appliedCouponCode', async () => {
+      const customer = await Customer.create({ name: 'Loyal Cust', phone: '9876543210' })
+      await Coupon.create({
+        code:       'SAVE10',
+        customerId: customer._id,
+        type:       'percentage',
+        value:      10,
+        status:     'active',
+        expiresAt:  new Date(Date.now() + 24 * 60 * 60 * 1000),
+      })
+
+      const res = await request(app)
+        .post('/api/v1/orders')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send(orderPayload({ couponCode: 'SAVE10' }))
+
+      expect(res.status).toBe(201)
+      expect(res.body.appliedCouponCode).toBe('SAVE10')
+      // 10% of (rawCost 500 + taxableValue 300) = 80
+      expect(res.body.discountAmount).toBe(80)
+
+      const reloaded = await Coupon.findOne({ code: 'SAVE10' }).lean()
+      expect(reloaded?.status).toBe('used')
+      expect(reloaded?.usedOnOrderId?.toString()).toBe(res.body._id)
+    })
+
+    it('400 — invalid coupon rolls back the order', async () => {
+      const before = await Order.countDocuments({})
+
+      const res = await request(app)
+        .post('/api/v1/orders')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send(orderPayload({ couponCode: 'NOPE' }))
+
+      expect(res.status).toBe(404)
+      const after = await Order.countDocuments({})
+      expect(after).toBe(before)
     })
 
     it('401 — no token', async () => {

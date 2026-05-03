@@ -175,4 +175,68 @@ describe('Analytics API — Integration', () => {
       expect(Array.isArray(res.body.byDepartment)).toBe(true)
     })
   })
+
+  // ── /attendance ────────────────────────────────────────────────────────────
+  describe('GET /api/v1/analytics/attendance', () => {
+    it('returns attendance breakdown and totals', async () => {
+      const res = await request(app)
+        .get('/api/v1/analytics/attendance')
+        .set('Authorization', `Bearer ${adminToken}`)
+
+      expect(res.status).toBe(200)
+      expect(Array.isArray(res.body.byStatus)).toBe(true)
+      expect(res.body).toHaveProperty('totalRecords')
+      expect(res.body).toHaveProperty('totalLateMinutes')
+      expect(res.body).toHaveProperty('totalOvertimeMinutes')
+      expect(Array.isArray(res.body.topLate)).toBe(true)
+      expect(Array.isArray(res.body.topOvertime)).toBe(true)
+    })
+  })
+
+  // ── /customers ─────────────────────────────────────────────────────────────
+  describe('GET /api/v1/analytics/customers', () => {
+    it('returns tier breakdown + top spenders', async () => {
+      const res = await request(app)
+        .get('/api/v1/analytics/customers')
+        .set('Authorization', `Bearer ${adminToken}`)
+
+      expect(res.status).toBe(200)
+      expect(Array.isArray(res.body.byTier)).toBe(true)
+      expect(res.body).toHaveProperty('totalCustomers')
+      expect(res.body).toHaveProperty('totalSpend')
+      expect(Array.isArray(res.body.topSpenders)).toBe(true)
+    })
+  })
+
+  // ── /discounts ─────────────────────────────────────────────────────────────
+  describe('GET /api/v1/analytics/discounts', () => {
+    it('returns discount usage stats', async () => {
+      const res = await request(app)
+        .get('/api/v1/analytics/discounts')
+        .set('Authorization', `Bearer ${adminToken}`)
+
+      expect(res.status).toBe(200)
+      expect(res.body).toHaveProperty('activeDiscounts')
+      expect(res.body).toHaveProperty('totalApplications')
+      expect(res.body).toHaveProperty('totalAmountSaved')
+      expect(Array.isArray(res.body.byType)).toBe(true)
+      expect(Array.isArray(res.body.topDiscounts)).toBe(true)
+    })
+  })
+
+  // ── /loyalty ───────────────────────────────────────────────────────────────
+  describe('GET /api/v1/analytics/loyalty', () => {
+    it('returns coupon stats', async () => {
+      const res = await request(app)
+        .get('/api/v1/analytics/loyalty')
+        .set('Authorization', `Bearer ${adminToken}`)
+
+      expect(res.status).toBe(200)
+      expect(Array.isArray(res.body.byStatus)).toBe(true)
+      expect(res.body).toHaveProperty('totalCoupons')
+      expect(res.body).toHaveProperty('activeCoupons')
+      expect(res.body).toHaveProperty('usedCoupons')
+      expect(Array.isArray(res.body.topRedeemers)).toBe(true)
+    })
+  })
 })
