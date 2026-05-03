@@ -15,6 +15,11 @@ import {
   makeTask,
   makePayment,
 } from '../helpers/mock-factory'
+
+function paymentDoc(overrides: Parameters<typeof makePayment>[0] = {}) {
+  const { _id: _ignore, ...rest } = makePayment(overrides)
+  return rest
+}
 import jwt from 'jsonwebtoken'
 import { env } from '../../src/config/env'
 
@@ -39,7 +44,7 @@ describe('Analytics API — Integration', () => {
       await Order.create({ ...makeOrder(), status: 'confirmed',        createdBy: adminId })
       await Material.create(makeMaterial({ stock: 5, threshold: 10 }))
       await Machine.create(makeMachine({ status: 'active' }))
-      await Payment.create({ ...makePayment({ collectedBy: adminId, orderId: '000000000000000000000001' }) })
+      await Payment.create(paymentDoc({ collectedBy: adminId, orderId: '000000000000000000000001' }))
 
       const res = await request(app)
         .get('/api/v1/analytics/overview')
@@ -91,14 +96,14 @@ describe('Analytics API — Integration', () => {
   // ── /revenue ───────────────────────────────────────────────────────────────
   describe('GET /api/v1/analytics/revenue', () => {
     it('sums completed payments and groups by method/type', async () => {
-      await Payment.create(makePayment({
+      await Payment.create(paymentDoc({
         collectedBy: adminId,
         orderId:     '000000000000000000000001',
         amount:      500,
         method:      'cash',
         type:        'advance',
       }))
-      await Payment.create(makePayment({
+      await Payment.create(paymentDoc({
         collectedBy: adminId,
         orderId:     '000000000000000000000002',
         amount:      1500,

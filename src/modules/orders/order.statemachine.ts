@@ -1,12 +1,12 @@
 import { Types } from 'mongoose'
 import { Order, IOrder, OrderStatus } from './order.model'
-import { Customer } from '../customers/customer.model'
 import { logActivity } from '../audit/activity-log.service'
 import { ValidationError } from '../../utils/AppError'
 import { logger } from '../../utils/logger'
 import { autoAssignTask } from '../tasks/task.assigner'
 import { deductForOrder, reverseOrderDeductions } from '../inventory/inventory.service'
 import { generateBarcode } from '../barcode/barcode.service'
+import { updateCustomerStats } from '../customers/customer.service'
 
 const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   draft:         ['confirmed', 'cancelled'],
@@ -25,23 +25,7 @@ async function generateFinalBarcode(order: IOrder): Promise<void> {
 
 async function updateCustomerOnCompletion(order: IOrder): Promise<void> {
   if (!order.customerId) return
-  const customer = await Customer.findById(order.customerId)
-  if (!customer) return
-
-  const orderTotal = order.rawCost + order.taxableValue
-  customer.visitCount += 1
-  customer.totalSpend += orderTotal
-  customer.lastVisit = new Date()
-
-  if (customer.totalSpend >= 50000 && customer.visitCount >= 20) {
-    customer.loyaltyTier = 'platinum'
-  } else if (customer.totalSpend >= 25000 && customer.visitCount >= 10) {
-    customer.loyaltyTier = 'gold'
-  } else if (customer.totalSpend >= 10000 && customer.visitCount >= 5) {
-    customer.loyaltyTier = 'silver'
-  }
-
-  await customer.save()
+  await updateCustomerStats(order.customerId.toString(), order.rawCost + order.taxableValue)
 }
 
 const HOOKS: Partial<Record<OrderStatus, Array<(order: IOrder, actorId: string) => Promise<void>>>> = {

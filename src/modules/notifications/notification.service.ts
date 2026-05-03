@@ -1,5 +1,6 @@
 import { Notification, NotificationType, ResourceType } from './notification.model'
 import { NotFoundError } from '../../utils/AppError'
+import { PaginationParams } from '../../utils/pagination'
 
 export interface CreateNotificationInput {
   userId:        string
@@ -10,9 +11,28 @@ export interface CreateNotificationInput {
   resourceType?: ResourceType
 }
 
-export async function listNotifications(userId: string) {
-  const notifications = await Notification.find({ userId }).lean()
-  return { notifications, total: notifications.length }
+export interface ListNotificationsQuery {
+  read?:       boolean
+  pagination?: PaginationParams
+}
+
+export async function listNotifications(userId: string, query: ListNotificationsQuery = {}) {
+  const filter: Record<string, unknown> = { userId }
+  if (query.read !== undefined) filter.read = query.read
+
+  const p = query.pagination
+  const cursor = p
+    ? Notification.find(filter).sort({ createdAt: -1 }).skip(p.skip).limit(p.limit)
+    : Notification.find(filter)
+  const notifications = await cursor.lean()
+  const total = p ? await Notification.countDocuments(filter) : notifications.length
+  return {
+    notifications,
+    total,
+    page:  p?.page  ?? 1,
+    limit: p?.limit ?? notifications.length,
+    pages: p ? Math.max(1, Math.ceil(total / p.limit)) : 1,
+  }
 }
 
 export async function getUnreadCount(userId: string) {

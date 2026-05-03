@@ -1,11 +1,12 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { PAYMENT_TYPES, PAYMENT_METHODS } from './payment.model'
+import { PAYMENT_TYPES, PAYMENT_METHODS, PAYMENT_STATUSES } from './payment.model'
 import { asyncHandler } from '../../utils/asyncHandler'
 import { authenticate } from '../../middleware/authenticate'
 import { permit } from '../../middleware/authorize'
 import { validate } from '../../middleware/validate'
 import * as paymentService from './payment.service'
+import { parsePagination } from '../../utils/pagination'
 
 export const paymentRouter = Router()
 
@@ -22,8 +23,17 @@ const createPaymentSchema = z.object({
 paymentRouter.get('/',
   authenticate,
   permit('payments', 'read'),
-  asyncHandler(async (_req, res) => {
-    const result = await paymentService.listPayments()
+  asyncHandler(async (req, res) => {
+    const { orderId, status, method, type, from, to } = req.query
+    const query: paymentService.ListPaymentsQuery = {}
+    if (typeof orderId === 'string') query.orderId = orderId
+    if (typeof status  === 'string' && (PAYMENT_STATUSES as readonly string[]).includes(status)) query.status = status as paymentService.ListPaymentsQuery['status']
+    if (typeof method  === 'string' && (PAYMENT_METHODS  as readonly string[]).includes(method)) query.method = method as paymentService.ListPaymentsQuery['method']
+    if (typeof type    === 'string' && (PAYMENT_TYPES    as readonly string[]).includes(type))   query.type   = type   as paymentService.ListPaymentsQuery['type']
+    if (typeof from    === 'string') query.from = from
+    if (typeof to      === 'string') query.to   = to
+    query.pagination = parsePagination(req.query)
+    const result = await paymentService.listPayments(query)
     res.json(result)
   })
 )

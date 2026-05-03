@@ -6,6 +6,7 @@ import { authenticate } from '../../middleware/authenticate'
 import { permit } from '../../middleware/authorize'
 import { validate } from '../../middleware/validate'
 import * as orderService from './order.service'
+import { parsePagination } from '../../utils/pagination'
 
 export const orderRouter = Router()
 
@@ -78,6 +79,7 @@ orderRouter.get('/',
 
     if (req.scopeToOwn) query.ownerId = req.user._id
 
+    query.pagination = parsePagination(req.query)
     const result = await orderService.listOrders(query)
     res.json(result)
   })

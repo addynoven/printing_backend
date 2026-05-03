@@ -2,12 +2,14 @@ import { Types } from 'mongoose'
 import { Task, TaskStatus } from './task.model'
 import { User } from '../auth/auth.model'
 import { NotFoundError } from '../../utils/AppError'
+import { PaginationParams } from '../../utils/pagination'
 
 export interface ListTasksQuery {
   status?:     TaskStatus
   assignedTo?: string
   orderId?:    string
   ownerId?:    string
+  pagination?: PaginationParams
 }
 
 export interface UpdateTaskStatusInput {
@@ -24,8 +26,17 @@ export async function listTasks(query: ListTasksQuery) {
     filter.$or = [{ assignedTo: new Types.ObjectId(query.ownerId) }]
   }
 
-  const tasks = await Task.find(filter).lean()
-  return { tasks, total: tasks.length }
+  const p = query.pagination
+  const cursor = p ? Task.find(filter).sort({ createdAt: -1 }).skip(p.skip).limit(p.limit) : Task.find(filter)
+  const tasks = await cursor.lean()
+  const total = p ? await Task.countDocuments(filter) : tasks.length
+  return {
+    tasks,
+    total,
+    page:  p?.page  ?? 1,
+    limit: p?.limit ?? tasks.length,
+    pages: p ? Math.max(1, Math.ceil(total / p.limit)) : 1,
+  }
 }
 
 export async function getTaskById(id: string) {
