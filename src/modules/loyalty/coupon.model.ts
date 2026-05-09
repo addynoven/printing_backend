@@ -34,7 +34,6 @@ const couponSchema = new Schema<ICoupon>(
 )
 
 couponSchema.index({ customerId: 1, status: 1 })
-couponSchema.index({ code: 1 })
 couponSchema.index({ expiresAt: 1 })
 
 export const Coupon = mongoose.model<ICoupon>('Coupon', couponSchema)

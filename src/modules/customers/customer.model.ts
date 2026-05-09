@@ -30,7 +30,6 @@ const customerSchema = new Schema<ICustomer>(
   { timestamps: true }
 )
 
-customerSchema.index({ phone: 1 })
 customerSchema.index({ loyaltyTier: 1 })
 
 export const Customer = mongoose.model<ICustomer>('Customer', customerSchema)
